@@ -23,7 +23,7 @@ from sourcetracker._sourcetracker import (biom_to_df,
                                           cumulative_proportions,
                                           single_sink_feature_table,
                                           ConditionalProbability,
-                                          gibbs_sampler)
+                                          gibbs_sampler, _gibbs)
 
 
 class TestCheckAndCorrectData(TestCase):
@@ -785,10 +785,10 @@ class ConditionalProbabilityTests(TestCase):
         np.testing.assert_array_almost_equal(obs_jp, exp_jp)
 
 
-class TestGibbsDeterministic(TestCase):
+class TestGibbs(TestCase):
     '''Unit tests for Gibbs based on seeding the PRNG and hand calculations.'''
 
-    def test_single_pass(self):
+    def test_single_pass_gibbs_sampler(self):
         # The data for this test was built by seeding the PRNG, and making the
         # calculations that Gibb's would make, and then comparing the results.
         restarts = 1
@@ -873,6 +873,52 @@ class TestGibbsDeterministic(TestCase):
         np.testing.assert_array_equal(obs_ta.squeeze()[order],
                                       expected_et_pairs[1, :])
 
+    def test_consistency_when_gibbs_seeded(self):
+        '''Test consistency of gibbs from run to run.
+
+        Notes
+        -----
+        The number of calls to the PRNG should be stable (and thus this test,
+        which is seeded, should not fail). Any changes made to the code which
+        cause this test to fail should be scrutinized very carefully.
+
+        If the number of calls to the PRNG has not been changed, then an error
+        has been introduced somewhere else in the code. If the number of calls
+        has been changed, the deterministic tests should fail as well, but
+        since they are a small example they might not fail (false negative).
+        This test is extensive (it does 201 loops through the entire
+        `gibbs_sampler` block).
+        '''
+        features = ['o1', 'o2', 'o3', 'o4', 'o5', 'o6']
+        source1 = np.array([10, 10, 10, 0, 0, 0])
+        source2 = np.array([0, 0, 0, 10, 10, 10])
+        sink1 = .5*source1 + .5*source2
+        sinks = pd.DataFrame(sink1.reshape(1, 6).astype(np.int32),
+                             index=['sink1'], columns=features)
+        sources = pd.DataFrame(np.vstack((source1, source2)).astype(np.int32),
+                               index=['source1', 'source2'], columns=features)
+
+        np.random.seed(1042)
+        mpm, mps, fts = _gibbs(sources, sinks, alpha1=.001, alpha2=.01, beta=1,
+                               restarts=3, draws_per_restart=5, burnin=50,
+                               delay=4, cluster=None,
+                               create_feature_tables=True)
+
+        possible_sources = ['source1', 'source2', 'Unknown']
+        vals = np.array([[0.44, 0.44666667, 0.11333333]])
+        exp_mpm = pd.DataFrame(vals, index=['sink1'], columns=possible_sources)
+
+        vals = np.array([[0.00824322, 0.00435465, 0.01047985]])
+        exp_mps = pd.DataFrame(vals, index=['sink1'], columns=possible_sources)
+
+        vals = np.array([[69, 64, 65,  0,  0,  0],
+                         [0, 0,  0, 67, 70, 64],
+                         [6, 11, 10,  8, 5, 11]], dtype=np.int32)
+        exp_fts = pd.DataFrame(vals, index=possible_sources, columns=features)
+
+        pd.util.testing.assert_frame_equal(mpm, exp_mpm)
+        pd.util.testing.assert_frame_equal(mps, exp_mps)
+        pd.util.testing.assert_frame_equal(fts[0], exp_fts)
 
 if __name__ == '__main__':
     main()
