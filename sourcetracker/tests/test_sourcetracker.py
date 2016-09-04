@@ -23,7 +23,7 @@ from sourcetracker._sourcetracker import (biom_to_df,
                                           cumulative_proportions,
                                           single_sink_feature_table,
                                           ConditionalProbability,
-                                          gibbs_sampler, _gibbs)
+                                          gibbs_sampler, _gibbs, _gibbs_loo)
 
 
 class TestCheckAndCorrectData(TestCase):
@@ -874,7 +874,7 @@ class TestGibbs(TestCase):
                                       expected_et_pairs[1, :])
 
     def test_consistency_when_gibbs_seeded(self):
-        '''Test consistency of gibbs from run to run.
+        '''Test consistency of `_gibbs` from run to run.
 
         Notes
         -----
@@ -919,6 +919,84 @@ class TestGibbs(TestCase):
         pd.util.testing.assert_frame_equal(mpm, exp_mpm)
         pd.util.testing.assert_frame_equal(mps, exp_mps)
         pd.util.testing.assert_frame_equal(fts[0], exp_fts)
+
+    def test_consistency_when_gibbs_loo_seeded(self):
+        '''Test consistency of `_gibbs_loo` from run to run.
+
+        Notes
+        -----
+        The number of calls to the PRNG should be stable (and thus this test,
+        which is seeded, should not fail). Any changes made to the code which
+        cause this test to fail should be scrutinized very carefully.
+
+        If the number of calls to the PRNG has not been changed, then an error
+        has been introduced somewhere else in the code. If the number of calls
+        has been changed, the deterministic tests should fail as well, but
+        since they are a small example they might not fail (false negative).
+        This test is extensive (it does 201 loops through the entire
+        `gibbs_sampler` block for each source).
+        '''
+        source1a = np.array([10, 10, 10, 0, 0, 0])
+        source1b = np.array([8, 8, 8, 2, 2, 2])
+        source2a = np.array([0, 0, 0, 10, 10, 10])
+        source2b = np.array([4, 4, 4, 6, 6, 6])
+
+        vals = np.vstack((source1a, source1b, source2a,
+                          source2b)).astype(np.int32)
+        source_names = ['source1a', 'source1b', 'source2a', 'source2b']
+        feature_names = ['o1', 'o2', 'o3', 'o4', 'o5', 'o6']
+        sources = pd.DataFrame(vals, index=source_names, columns=feature_names)
+
+        np.random.seed(1042)
+        obs_mpm, obs_mps, obs_fts = _gibbs_loo(sources, alpha1=.001,
+                                               alpha2=.01, beta=1, restarts=3,
+                                               draws_per_restart=5, burnin=50,
+                                               delay=4, cluster=None,
+                                               create_feature_tables=True)
+
+        vals = np.array([[0., 0.62444444, 0., 0.01555556, 0.36],
+                         [0.68444444, 0., 0.09333333, 0.12666667, 0.09555556],
+                         [0., 0.00888889, 0., 0.08222222, 0.90888889],
+                         [0.19111111, 0.2, 0.5, 0., 0.10888889]])
+        exp_mpm = pd.DataFrame(vals, index=source_names,
+                               columns=source_names + ['Unknown'])
+
+        vals = np.array([[0., 0.02406393, 0., 0.0015956, 0.02445387],
+                         [0.0076923, 0., 0.00399176, 0.00824322, 0.00648476],
+                         [0., 0.00127442, 0., 0.00622575, 0.00609752],
+                         [0.00636175, 0.00786721, 0.00525874, 0., 0.00609752]])
+        exp_mps = pd.DataFrame(vals, index=source_names,
+                               columns=source_names + ['Unknown'])
+
+        fts0_vals = np.array([[0, 0, 0, 0, 0, 0],
+                              [93, 87, 101, 0, 0, 0],
+                              [0, 0, 0, 0, 0, 0],
+                              [3, 4, 0, 0, 0, 0],
+                              [54, 59, 49, 0, 0, 0]])
+        fts1_vals = np.array([[113, 98, 97, 0, 0, 0],
+                              [0, 0, 0, 0, 0, 0],
+                              [0, 0, 0, 15, 13, 14],
+                              [5, 7, 11, 11, 12, 11],
+                              [2, 15, 12, 4, 5, 5]])
+        fts2_vals = np.array([[0, 0, 0, 0, 0, 0],
+                              [0, 0, 0, 2, 1, 1],
+                              [0, 0, 0, 0, 0, 0],
+                              [0, 0, 0, 12, 12, 13],
+                              [0, 0, 0, 136, 137, 136]])
+        fts3_vals = np.array([[28, 27, 31, 0, 0, 0],
+                              [27, 24, 25, 3, 4, 7],
+                              [0, 0, 0, 80, 71, 74],
+                              [0, 0, 0, 0, 0, 0],
+                              [5, 9, 4, 7, 15, 9]])
+        fts_vals = [fts0_vals, fts1_vals, fts2_vals, fts3_vals]
+        exp_fts = [pd.DataFrame(vals, index=source_names + ['Unknown'],
+                   columns=feature_names) for vals in fts_vals]
+
+        pd.util.testing.assert_frame_equal(obs_mpm, exp_mpm)
+        pd.util.testing.assert_frame_equal(obs_mps, exp_mps)
+        for obs_fts, exp_fts in zip(obs_fts, exp_fts):
+            pd.util.testing.assert_frame_equal(obs_fts, exp_fts)
+
 
 if __name__ == '__main__':
     main()
