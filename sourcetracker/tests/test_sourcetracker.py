@@ -997,8 +997,14 @@ class TestGibbs(TestCase):
         for obs_fts, exp_fts in zip(obs_fts, exp_fts):
             pd.util.testing.assert_frame_equal(obs_fts, exp_fts)
 
-    def test_gibbs_close_to_R(self):
-        '''This test is stochastic; occasional errors might occur.'''
+    def test_gibbs_close_to_sourcetracker_1(self):
+        '''This test is stochastic; occasional errors might occur.
+
+        Notes
+        -----
+        This tests against the R-code SourceTracker version 1.0, using
+        R version 2.15.3.
+        '''
 
         sources_data = \
             np.array([[0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
