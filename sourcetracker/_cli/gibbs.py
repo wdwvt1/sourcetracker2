@@ -65,7 +65,7 @@ from sourcetracker._util import parse_sample_metadata, biom_to_df
 @click.option('--beta', required=False, default=10,
               type=click.FLOAT, show_default=True,
               help=('Count to be added to each species in each environment, '
-                    'including `unknown` for `p_v` calculations'.))
+                    'including `unknown` for `p_v` calculations.'))
 @click.option('--source_rarefaction_depth', required=False, default=1000,
               type=click.IntRange(min=0, max=None), show_default=True,
               help=('Depth at which to rarify sources. If 0, no '
