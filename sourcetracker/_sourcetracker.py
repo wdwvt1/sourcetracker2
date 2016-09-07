@@ -9,10 +9,14 @@
 # ----------------------------------------------------------------------------
 from __future__ import division
 
+import matplotlib
+matplotlib.use('Agg')  # noqa: E402
+
 import numpy as np
 from skbio.stats import subsample_counts
 import pandas as pd
 from functools import partial
+
 import seaborn as sns
 import matplotlib.pyplot as plt
 
