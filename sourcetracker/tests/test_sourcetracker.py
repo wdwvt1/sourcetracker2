@@ -9,96 +9,209 @@
 from __future__ import division
 
 from unittest import TestCase, main
+
 import numpy as np
+
 import pandas as pd
-from biom.table import Table
-from sourcetracker._sourcetracker import (biom_to_df,
-                                          intersect_and_sort_samples,
+
+from sourcetracker._sourcetracker import (intersect_and_sort_samples,
                                           collapse_source_data,
                                           subsample_dataframe,
-                                          check_and_correct_data,
+                                          validate_gibbs_input,
+                                          validate_gibbs_parameters,
                                           collate_gibbs_results,
                                           get_samples,
                                           generate_environment_assignments,
                                           cumulative_proportions,
                                           single_sink_feature_table,
                                           ConditionalProbability,
-                                          gibbs_sampler)
+                                          gibbs_sampler, gibbs)
 
 
-class TestCheckAndCorrectData(TestCase):
+class TestValidateGibbsInput(TestCase):
 
     def setUp(self):
-        data = np.random.randint(0, 100, size=18).reshape(3, 6)
-        self.ftable = pd.DataFrame(data)
+        self.index = ['s%s' % i for i in range(5)]
+        self.columns = ['f%s' % i for i in range(4)]
 
-    def test_no_errors(self):
+    def test_no_errors_(self):
         # A table where nothing is wrong, no changes expected.
-        obs = check_and_correct_data(self.ftable, True)
-        pd.util.testing.assert_frame_equal(self.ftable, obs)
+        data = np.random.randint(0, 10, size=20).reshape(5, 4)
+        sources = pd.DataFrame(data.astype(np.int32), index=self.index,
+                               columns=self.columns)
+        exp_sources = pd.DataFrame(data.astype(np.int32), index=self.index,
+                                   columns=self.columns)
+        obs = validate_gibbs_input(sources)
+        pd.util.testing.assert_frame_equal(obs, sources)
 
-    def test_error_on_string_data(self):
-        # A table with a string element, expect a TypeError.
-        ftable = self.ftable.copy()
-        ftable.iloc[0, 3] = '4.5'
-        self.assertRaises(TypeError, check_and_correct_data, ftable, True)
-        self.assertRaises(TypeError, check_and_correct_data, ftable, False)
+        # Sources and sinks.
+        sinks = pd.DataFrame(data, index=self.index, columns=self.columns)
+        exp_sinks = pd.DataFrame(data.astype(np.int32), index=self.index,
+                                 columns=self.columns)
+        obs_sources, obs_sinks = validate_gibbs_input(sources, sinks)
+        pd.util.testing.assert_frame_equal(obs_sources, exp_sources)
+        pd.util.testing.assert_frame_equal(obs_sinks, exp_sinks)
 
-    def test_error_on_bool_data(self):
-        # A table with some boolean data, expect a TypeError.
-        ftable = self.ftable.copy()
-        ftable.iloc[0, 3] = True
-        self.assertRaises(TypeError, check_and_correct_data, ftable, True)
-        self.assertRaises(TypeError, check_and_correct_data, ftable, False)
+    def test_float_data(self):
+        # Data is float, expect rounding.
+        data = np.random.uniform(0, 1, size=20).reshape(5, 4)
+        sources = pd.DataFrame(data, index=self.index, columns=self.columns)
+        exp_sources = pd.DataFrame(np.zeros(20).reshape(5, 4).astype(np.int32),
+                                   index=self.index, columns=self.columns)
+        obs_sources = validate_gibbs_input(sources)
+        pd.util.testing.assert_frame_equal(obs_sources, exp_sources)
 
-    def test_error_on_nan_data(self):
-        # A table with nans, expect a ValueError.
-        ftable = self.ftable.copy()
-        ftable.iloc[0, 3] = np.nan
-        self.assertRaises(ValueError, check_and_correct_data, ftable, True)
+        data = np.random.uniform(0, 1, size=20).reshape(5, 4) + 1.
+        sources = pd.DataFrame(data, index=self.index, columns=self.columns)
+        exp_sources = pd.DataFrame(np.ones(20).reshape(5, 4).astype(np.int32),
+                                   index=self.index, columns=self.columns)
+        obs_sources = validate_gibbs_input(sources)
+        pd.util.testing.assert_frame_equal(obs_sources, exp_sources)
 
-    def test_error_on_no_correction_fractional_count(self):
-        # Check that fractional counts give an error if function isn't allowed
-        # to correct them.
-        ftable = self.ftable.copy()
-        ftable.iloc[0, 3] = 4.512
-        self.assertRaises(ValueError, check_and_correct_data, ftable, False)
+        # Sources and sinks.
+        data = np.random.uniform(0, 1, size=20).reshape(5, 4) + 5
+        sinks = pd.DataFrame(data,
+                             index=self.index,
+                             columns=self.columns)
+        exp_sinks = \
+            pd.DataFrame(5 * np.ones(20).reshape(5, 4).astype(np.int32),
+                         index=self.index,
+                         columns=self.columns)
+        obs_sources, obs_sinks = validate_gibbs_input(sources, sinks)
+        pd.util.testing.assert_frame_equal(obs_sources, exp_sources)
+        pd.util.testing.assert_frame_equal(obs_sinks, exp_sinks)
 
-    def test_correcting_fractional_count(self):
-        # Check that fractional counts are corrected.
-        ftable1 = self.ftable.copy()
-        ftable2 = self.ftable.copy()
-        ftable1.iloc[0, 3] = 5
-        ftable2.iloc[0, 3] = 4.512
-        obs1 = check_and_correct_data(ftable1, True)
-        obs2 = check_and_correct_data(ftable2, True)
-        pd.util.testing.assert_frame_equal(obs1, obs2)
+    def test_negative_data(self):
+        # Values less than 0, expect errors.
+        data = np.random.uniform(0, 1, size=20).reshape(5, 4) - 1.
+        sources = pd.DataFrame(data,
+                               index=self.index,
+                               columns=self.columns)
+        self.assertRaises(ValueError, validate_gibbs_input, sources)
+
+        data = -1 * np.random.randint(0, 20, size=20).reshape(5, 4)
+        sources = pd.DataFrame(data,
+                               index=self.index,
+                               columns=self.columns)
+        self.assertRaises(ValueError, validate_gibbs_input, sources)
+
+        # Sources and sinks.
+        data = np.random.randint(0, 10, size=20).reshape(5, 4) + 1
+        sources = pd.DataFrame(data.astype(np.int32),
+                               index=self.index,
+                               columns=self.columns)
+        sinks = pd.DataFrame(-10 * data,
+                             index=self.index,
+                             columns=self.columns)
+        self.assertRaises(ValueError, validate_gibbs_input, sources, sinks)
+
+    def test_nan_data(self):
+        # nans, expect errors.
+        data = np.random.uniform(0, 1, size=20).reshape(5, 4)
+        data[3, 2] = np.nan
+        sources = pd.DataFrame(data,
+                               index=self.index,
+                               columns=self.columns)
+        self.assertRaises(ValueError, validate_gibbs_input, sources)
+
+        # Sources and sinks.
+        data = np.random.randint(0, 10, size=20).reshape(5, 4) + 1.
+        sources = pd.DataFrame(data,
+                               index=self.index,
+                               columns=self.columns)
+        data[1, 3] = np.nan
+        sinks = pd.DataFrame(data,
+                             index=self.index,
+                             columns=self.columns)
+        self.assertRaises(ValueError, validate_gibbs_input, sources, sinks)
+
+    def test_non_numeric_data(self):
+        # data contains at least some non-numeric columns, expect errors.
+        data = np.random.randint(0, 10, size=20).reshape(5, 4)
+        sources = pd.DataFrame(data.astype(np.int32),
+                               index=self.index,
+                               columns=self.columns)
+        sources.iloc[2, 2] = '3.a'
+        self.assertRaises(ValueError, validate_gibbs_input, sources)
+
+        # Sources and sinks.
+        data = np.random.randint(0, 10, size=20).reshape(5, 4)
+        sources = pd.DataFrame(data.astype(np.int32),
+                               index=self.index,
+                               columns=self.columns)
+        sinks = pd.DataFrame(data.astype(np.int32),
+                             index=self.index,
+                             columns=self.columns)
+        sinks.iloc[2, 2] = '3'
+        self.assertRaises(ValueError, validate_gibbs_input, sources, sinks)
+
+    def test_columns_identical(self):
+        # Columns are identical, no error expected.
+        data = np.random.randint(0, 10, size=20).reshape(5, 4)
+        sources = pd.DataFrame(data.astype(np.int32),
+                               index=self.index,
+                               columns=self.columns)
+        data = np.random.randint(0, 10, size=200).reshape(50, 4)
+        sinks = pd.DataFrame(data.astype(np.int32),
+                             index=['s%s' % i for i in range(50)],
+                             columns=self.columns)
+        obs_sources, obs_sinks = validate_gibbs_input(sources, sinks)
+        pd.util.testing.assert_frame_equal(obs_sources, sources)
+        pd.util.testing.assert_frame_equal(obs_sinks, sinks)
+
+    def test_columns_non_identical(self):
+        # Columns are not identical, error expected.
+        data = np.random.randint(0, 10, size=20).reshape(5, 4)
+        sources = pd.DataFrame(data.astype(np.int32),
+                               index=self.index,
+                               columns=self.columns)
+        data = np.random.randint(0, 10, size=200).reshape(50, 4)
+        sinks = pd.DataFrame(data.astype(np.int32),
+                             index=['s%s' % i for i in range(50)],
+                             columns=['feature%s' % i for i in range(4)])
+        self.assertRaises(ValueError, validate_gibbs_input, sources, sinks)
 
 
-class TestBiomToDf(TestCase):
+class TestValidateGibbsParams(TestCase):
 
-    def setUp(self):
-        self.exp = \
-            pd.DataFrame(np.arange(200).reshape(20, 10).astype(np.int64).T,
-                         index=['s%s' % i for i in range(10)],
-                         columns=['o%s' % i for i in range(20)])
+    def test_acceptable_inputs(self):
+        # All values acceptable, expect no errors.
+        alpha1 = .001
+        alpha2 = .1
+        beta = 10
+        restarts = 10
+        draws_per_restart = 1
+        burnin = 100
+        delay = 1
+        self.assertTrue(validate_gibbs_parameters(alpha1, alpha2, beta,
+                        restarts, draws_per_restart, burnin, delay))
 
-    def test_converts_floats(self):
-        data = np.arange(200).reshape(20, 10).astype(float)
-        oids = ['o%s' % i for i in range(20)]
-        sids = ['s%s' % i for i in range(10)]
+        alpha1 = alpha2 = beta = 0
+        self.assertTrue(validate_gibbs_parameters(alpha1, alpha2, beta,
+                        restarts, draws_per_restart, burnin, delay))
 
-        obs = biom_to_df(Table(data, oids, sids))
-        pd.util.testing.assert_frame_equal(obs, self.exp)
+    def test_not_acceptable_inputs(self):
+        # One of the float params is negative.
+        alpha1 = -.001
+        alpha2 = .1
+        beta = 10
+        restarts = 10
+        draws_per_restart = 1
+        burnin = 100
+        delay = 1
+        self.assertFalse(validate_gibbs_parameters(alpha1, alpha2, beta,
+                         restarts, draws_per_restart, burnin, delay))
 
-        # Because the biom table and dataframe are transposed with respect to
-        # one another, we used data[3, 0] and exp.iloc[0, 3] to refer to the
-        # same value in the different tables.
-        data[3, 0] = 4.512
-        obs = biom_to_df(Table(data, oids, sids))
-        exp = self.exp.copy()
-        exp.iloc[0, 3] = 5
-        pd.util.testing.assert_frame_equal(obs, exp)
+        # One of the int params is 0.
+        alpha1 = .001
+        restarts = 0
+        self.assertFalse(validate_gibbs_parameters(alpha1, alpha2, beta,
+                         restarts, draws_per_restart, burnin, delay))
+
+        # One of the int params is a float.
+        restarts = 1.34
+        self.assertFalse(validate_gibbs_parameters(alpha1, alpha2, beta,
+                         restarts, draws_per_restart, burnin, delay))
 
 
 class TestIntersectAndSortSamples(TestCase):
@@ -204,21 +317,21 @@ class TestCollapseSourceData(TestCase):
                                    method)
         exp_data = np.vstack((fdata[1, :], fdata[0, :] + fdata[2, :]))
         exp_index = [0.4, 3.0]
-        exp = pd.DataFrame(exp_data, index=exp_index,
+        exp = pd.DataFrame(exp_data.astype(np.int32), index=exp_index,
                            columns=map(str, np.arange(4)))
         exp.index.name = 'collapse_col'
         pd.util.testing.assert_frame_equal(obs, exp)
 
         # Example with collapse mode 'mean'. This will cause non-integer values
-        # to be present, which the check_and_correct_data should catch.
+        # to be present, which the validate_gibbs_input should catch.
         source_samples = ['sample1', 'sample2', 'sample3', 'sample4']
         method = 'mean'
         obs = collapse_source_data(stable, ftable, source_samples, category,
                                    method)
-        exp_data = np.ceil(np.vstack((fdata[1, :],
-                                      fdata[[0, 2, 3], :].mean(0))))
+        exp_data = np.vstack((fdata[1, :],
+                              fdata[[0, 2, 3], :].mean(0))).astype(np.int32)
         exp_index = [0.4, 3.0]
-        exp = pd.DataFrame(exp_data.astype(np.int64), index=exp_index,
+        exp = pd.DataFrame(exp_data.astype(np.int32), index=exp_index,
                            columns=map(str, np.arange(4)))
         exp.index.name = 'collapse_col'
         pd.util.testing.assert_frame_equal(obs, exp)
@@ -250,7 +363,8 @@ class TestCollapseSourceData(TestCase):
         exp_data = np.array([[9, 19, 29, 39, 49, 59, 69, 79, 89, 99, 109, 119,
                               129, 139, 149, 159, 169, 179, 189, 199],
                              [6, 36, 66, 96, 126, 156, 186, 216, 246, 276, 306,
-                              336,  366, 396, 426, 456, 486, 516, 546, 576]])
+                              336,  366, 396, 426, 456, 486, 516, 546, 576]],
+                            dtype=np.int32)
 
         exp = pd.DataFrame(exp_data, index=exp_index, columns=oids)
         exp.index.name = 'collapse_col'
@@ -785,10 +899,10 @@ class ConditionalProbabilityTests(TestCase):
         np.testing.assert_array_almost_equal(obs_jp, exp_jp)
 
 
-class TestGibbsDeterministic(TestCase):
+class TestGibbs(TestCase):
     '''Unit tests for Gibbs based on seeding the PRNG and hand calculations.'''
 
-    def test_single_pass(self):
+    def test_single_pass_gibbs_sampler(self):
         # The data for this test was built by seeding the PRNG, and making the
         # calculations that Gibb's would make, and then comparing the results.
         restarts = 1
@@ -872,6 +986,193 @@ class TestGibbsDeterministic(TestCase):
                                       seq_env_assignments)
         np.testing.assert_array_equal(obs_ta.squeeze()[order],
                                       expected_et_pairs[1, :])
+
+    def test_gibbs_params_bad(self):
+        # test gibbs when the parameters passed are bad
+        features = ['o1', 'o2', 'o3', 'o4', 'o5', 'o6']
+        source1 = np.array([10, 10, 10, 0, 0, 0])
+        source2 = np.array([0, 0, 0, 10, 10, 10])
+        sources = pd.DataFrame(np.vstack((source1, source2)).astype(np.int32),
+                               index=['source1', 'source2'], columns=features)
+        self.assertRaises(ValueError, gibbs, sources, alpha1=-.3)
+
+    def test_consistency_when_gibbs_seeded(self):
+        '''Test consistency of `gibbs` (normal) from run to run.
+
+        Notes
+        -----
+        The number of calls to the PRNG should be stable (and thus this test,
+        which is seeded, should not fail). Any changes made to the code which
+        cause this test to fail should be scrutinized very carefully.
+
+        If the number of calls to the PRNG has not been changed, then an error
+        has been introduced somewhere else in the code. If the number of calls
+        has been changed, the deterministic tests should fail as well, but
+        since they are a small example they might not fail (false negative).
+        This test is extensive (it does 201 loops through the entire
+        `gibbs_sampler` block).
+        '''
+        features = ['o1', 'o2', 'o3', 'o4', 'o5', 'o6']
+        source1 = np.array([10, 10, 10, 0, 0, 0])
+        source2 = np.array([0, 0, 0, 10, 10, 10])
+        sink1 = .5*source1 + .5*source2
+        sinks = pd.DataFrame(sink1.reshape(1, 6).astype(np.int32),
+                             index=['sink1'], columns=features)
+        sources = pd.DataFrame(np.vstack((source1, source2)).astype(np.int32),
+                               index=['source1', 'source2'], columns=features)
+
+        np.random.seed(1042)
+        mpm, mps, fts = gibbs(sources, sinks, alpha1=.001, alpha2=.01, beta=1,
+                              restarts=3, draws_per_restart=5, burnin=50,
+                              delay=4, cluster=None,
+                              create_feature_tables=True)
+
+        possible_sources = ['source1', 'source2', 'Unknown']
+        vals = np.array([[0.44, 0.44666667, 0.11333333]])
+        exp_mpm = pd.DataFrame(vals, index=['sink1'], columns=possible_sources)
+
+        vals = np.array([[0.00824322, 0.00435465, 0.01047985]])
+        exp_mps = pd.DataFrame(vals, index=['sink1'], columns=possible_sources)
+
+        vals = np.array([[69, 64, 65,  0,  0,  0],
+                         [0, 0,  0, 67, 70, 64],
+                         [6, 11, 10,  8, 5, 11]], dtype=np.int32)
+        exp_fts = pd.DataFrame(vals, index=possible_sources, columns=features)
+
+        pd.util.testing.assert_frame_equal(mpm, exp_mpm)
+        pd.util.testing.assert_frame_equal(mps, exp_mps)
+        pd.util.testing.assert_frame_equal(fts[0], exp_fts)
+
+    def test_consistency_when_gibbs_loo_seeded(self):
+        '''Test consistency of `gibbs` (loo) from run to run.
+
+        Notes
+        -----
+        The number of calls to the PRNG should be stable (and thus this test,
+        which is seeded, should not fail). Any changes made to the code which
+        cause this test to fail should be scrutinized very carefully.
+
+        If the number of calls to the PRNG has not been changed, then an error
+        has been introduced somewhere else in the code. If the number of calls
+        has been changed, the deterministic tests should fail as well, but
+        since they are a small example they might not fail (false negative).
+        This test is extensive (it does 201 loops through the entire
+        `gibbs_sampler` block for each source).
+        '''
+        source1a = np.array([10, 10, 10, 0, 0, 0])
+        source1b = np.array([8, 8, 8, 2, 2, 2])
+        source2a = np.array([0, 0, 0, 10, 10, 10])
+        source2b = np.array([4, 4, 4, 6, 6, 6])
+
+        vals = np.vstack((source1a, source1b, source2a,
+                          source2b)).astype(np.int32)
+        source_names = ['source1a', 'source1b', 'source2a', 'source2b']
+        feature_names = ['o1', 'o2', 'o3', 'o4', 'o5', 'o6']
+        sources = pd.DataFrame(vals, index=source_names, columns=feature_names)
+
+        np.random.seed(1042)
+        obs_mpm, obs_mps, obs_fts = gibbs(sources, sinks=None, alpha1=.001,
+                                          alpha2=.01, beta=1, restarts=3,
+                                          draws_per_restart=5, burnin=50,
+                                          delay=4, cluster=None,
+                                          create_feature_tables=True)
+
+        vals = np.array([[0., 0.62444444, 0., 0.01555556, 0.36],
+                         [0.68444444, 0., 0.09333333, 0.12666667, 0.09555556],
+                         [0., 0.00888889, 0., 0.08222222, 0.90888889],
+                         [0.19111111, 0.2, 0.5, 0., 0.10888889]])
+        exp_mpm = pd.DataFrame(vals, index=source_names,
+                               columns=source_names + ['Unknown'])
+
+        vals = np.array([[0., 0.02406393, 0., 0.0015956, 0.02445387],
+                         [0.0076923, 0., 0.00399176, 0.00824322, 0.00648476],
+                         [0., 0.00127442, 0., 0.00622575, 0.00609752],
+                         [0.00636175, 0.00786721, 0.00525874, 0., 0.00609752]])
+        exp_mps = pd.DataFrame(vals, index=source_names,
+                               columns=source_names + ['Unknown'])
+
+        fts0_vals = np.array([[0, 0, 0, 0, 0, 0],
+                              [93, 87, 101, 0, 0, 0],
+                              [0, 0, 0, 0, 0, 0],
+                              [3, 4, 0, 0, 0, 0],
+                              [54, 59, 49, 0, 0, 0]])
+        fts1_vals = np.array([[113, 98, 97, 0, 0, 0],
+                              [0, 0, 0, 0, 0, 0],
+                              [0, 0, 0, 15, 13, 14],
+                              [5, 7, 11, 11, 12, 11],
+                              [2, 15, 12, 4, 5, 5]])
+        fts2_vals = np.array([[0, 0, 0, 0, 0, 0],
+                              [0, 0, 0, 2, 1, 1],
+                              [0, 0, 0, 0, 0, 0],
+                              [0, 0, 0, 12, 12, 13],
+                              [0, 0, 0, 136, 137, 136]])
+        fts3_vals = np.array([[28, 27, 31, 0, 0, 0],
+                              [27, 24, 25, 3, 4, 7],
+                              [0, 0, 0, 80, 71, 74],
+                              [0, 0, 0, 0, 0, 0],
+                              [5, 9, 4, 7, 15, 9]])
+        fts_vals = [fts0_vals, fts1_vals, fts2_vals, fts3_vals]
+        exp_fts = [pd.DataFrame(vals, index=source_names + ['Unknown'],
+                   columns=feature_names) for vals in fts_vals]
+
+        pd.util.testing.assert_frame_equal(obs_mpm, exp_mpm)
+        pd.util.testing.assert_frame_equal(obs_mps, exp_mps)
+        for obs_fts, exp_fts in zip(obs_fts, exp_fts):
+            pd.util.testing.assert_frame_equal(obs_fts, exp_fts)
+
+    def test_gibbs_close_to_sourcetracker_1(self):
+        '''This test is stochastic; occasional errors might occur.
+
+        Notes
+        -----
+        This tests against the R-code SourceTracker version 1.0, using
+        R version 2.15.3.
+        '''
+
+        sources_data = \
+            np.array([[0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  4],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 0, 0, 0, 0,  0]],
+                     dtype=np.int32)
+        sources_names = ['source1', 'source2', 'source3']
+        feature_names = ['f%i' % i for i in range(32)]
+        sources = pd.DataFrame(sources_data, index=sources_names,
+                               columns=feature_names)
+
+        sinks_data = np.array([[0, 0, 0, 0, 0, 0, 170, 0, 0, 0, 0, 0, 0, 0, 0,
+                                0, 0, 0, 385, 0, 0, 0, 0, 0, 0, 0, 350, 0, 0,
+                                0, 0, 95],
+                               [0, 0, 0, 0, 0, 0, 170, 0, 0, 0, 0, 0, 0, 0, 0,
+                                0, 0, 0, 380, 0, 0, 0, 0, 0, 0, 0, 350, 0, 0,
+                                0, 0, 100],
+                               [0, 0, 0, 0, 0, 0, 170, 0, 0, 0, 0, 0, 0, 0, 0,
+                                0, 0, 0, 378, 0, 0, 0, 0, 0, 0, 0, 350, 0, 0,
+                                0, 0, 102],
+                               [0, 0, 0, 0, 0, 0, 170, 0, 0, 0, 0, 0, 0, 0, 0,
+                                0, 0, 0, 386, 0, 0, 0, 0, 0, 0, 0, 350, 0, 0,
+                                0, 0, 94]], dtype=np.int32)
+        sinks_names = ['sink1', 'sink2', 'sink3', 'sink4']
+        sinks = pd.DataFrame(sinks_data, index=sinks_names,
+                             columns=feature_names)
+
+        obs_mpm, obs_mps, _ = gibbs(sources, sinks, alpha1=.001, alpha2=.1,
+                                    beta=10, restarts=2, draws_per_restart=2,
+                                    burnin=5, delay=2, cluster=None,
+                                    create_feature_tables=False)
+
+        exp_vals = np.array([[0.1695, 0.4781, 0.3497, 0.0027],
+                             [0.1695, 0.4794, 0.3497, 0.0014],
+                             [0.1693, 0.4784, 0.3499, 0.0024],
+                             [0.1696, 0.4788, 0.3494, 0.0022]])
+        exp_mpm = pd.DataFrame(exp_vals, index=sinks_names,
+                               columns=sources_names + ['Unknown'])
+
+        pd.util.testing.assert_index_equal(obs_mpm.index, exp_mpm.index)
+        pd.util.testing.assert_index_equal(obs_mpm.columns, exp_mpm.columns)
+        np.testing.assert_allclose(obs_mpm.values, exp_mpm.values, atol=.01)
 
 
 if __name__ == '__main__':
