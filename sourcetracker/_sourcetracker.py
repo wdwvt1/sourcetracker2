@@ -581,43 +581,8 @@ def gibbs_sampler(sink, cp, restarts, draws_per_restart, burnin, delay):
     return (final_envcounts, final_env_assignments, final_taxon_assignments)
 
 
-def _gibbs_loo(sources, alpha1, alpha2, beta, restarts, draws_per_restart,
-               burnin, delay, cluster=None, create_feature_tables=True):
-    '''Gibb's LOO sampling API - see _gibbs for documentation.
-
-    Notes
-    -----
-    In leave-one-out (LOO) classification, each source is individually
-    considered as a sink, so there is no need to pass a sinks dataframe.
-    '''
-    def f(cp_and_sink):
-        # The import is here to ensure that the engines of the cluster can
-        # access the gibbs_sampler function.
-        from sourcetracker._sourcetracker import gibbs_sampler
-        return gibbs_sampler(cp_and_sink[1], cp_and_sink[0], restarts,
-                             draws_per_restart, burnin, delay)
-    cps_and_sinks = []
-    for source in sources.index:
-        _sources = sources.select(lambda x: x != source)
-        cp = ConditionalProbability(alpha1, alpha2, beta, _sources.values)
-        sink = sources.loc[source, :].values
-        cps_and_sinks.append((cp, sink))
-
-    if cluster is not None:
-        results = cluster[:].map(f, cps_and_sinks, block=True)
-    else:
-        results = list(map(f, cps_and_sinks))
-    mpm, mps, fas = collate_gibbs_results([i[0] for i in results],
-                                          [i[1] for i in results],
-                                          [i[2] for i in results],
-                                          sources.index, sources.index,
-                                          sources.columns,
-                                          create_feature_tables, loo=True)
-    return mpm, mps, fas
-
-
-def _gibbs(sources, sinks, alpha1, alpha2, beta, restarts, draws_per_restart,
-           burnin, delay, cluster=None, create_feature_tables=True):
+def gibbs(sources, sinks, alpha1, alpha2, beta, restarts, draws_per_restart,
+          burnin, delay, cluster=None, create_feature_tables=True):
     '''Gibb's sampling API.
 
     Notes
@@ -708,7 +673,7 @@ def _gibbs(sources, sinks, alpha1, alpha2, beta, restarts, draws_per_restart,
     >>> from ipyparallel import Client
     >>> import subprocess
     >>> import time
-    >>> from sourcetracker._sourcetracker import _gibbs
+    >>> from sourcetracker import gibbs
 
     # Prepare some source data.
     >>> otus = np.array(['o%s' % i for i in range(50)])
@@ -741,34 +706,61 @@ def _gibbs(sources, sinks, alpha1, alpha2, beta, restarts, draws_per_restart,
     >>> delay = 2
 
     # Call without a cluster
-    >>> mpm, mps, fas = _gibbs(source_df, sink_df, alpha1, alpha2, beta,
-                               restarts, draws_per_restart, burnin, delay,
-                               cluster=None, create_feature_tables=True)
+    >>> mpm, mps, fas = gibbs(source_df, sink_df, alpha1, alpha2, beta,
+                              restarts, draws_per_restart, burnin, delay,
+                              cluster=None, create_feature_tables=True)
 
     # Start a cluster and call the function
     >>> jobs = 4
     >>> subprocess.Popen('ipcluster start -n %s --quiet' % jobs, shell=True)
     >>> time.sleep(25)
     >>> c = Client()
-    >>> mpm, mps, fas = _gibbs(source_df, sink_df, alpha1, alpha2, beta,
-                               restarts, draws_per_restart, burnin, delay,
-                               cluster=c, create_feature_tables=True)
+    >>> mpm, mps, fas = gibbs(source_df, sink_df, alpha1, alpha2, beta,
+                              restarts, draws_per_restart, burnin, delay,
+                              cluster=c, create_feature_tables=True)
     '''
-    cp = ConditionalProbability(alpha1, alpha2, beta, sources.values)
-    f = partial(gibbs_sampler, cp=cp, restarts=restarts,
-                draws_per_restart=draws_per_restart, burnin=burnin,
-                delay=delay)
-    if cluster is not None:
-        results = cluster[:].map(f, sinks.values, block=True)
+    if sinks is None:
+        def f(cp_and_sink):
+            # The import is here to ensure that the engines of the cluster can
+            # access the gibbs_sampler function.
+            from sourcetracker._sourcetracker import gibbs_sampler
+            return gibbs_sampler(cp_and_sink[1], cp_and_sink[0], restarts,
+                                 draws_per_restart, burnin, delay)
+        cps_and_sinks = []
+        for source in sources.index:
+            _sources = sources.select(lambda x: x != source)
+            cp = ConditionalProbability(alpha1, alpha2, beta, _sources.values)
+            sink = sources.loc[source, :].values
+            cps_and_sinks.append((cp, sink))
+
+        if cluster is not None:
+            results = cluster[:].map(f, cps_and_sinks, block=True)
+        else:
+            results = list(map(f, cps_and_sinks))
+        mpm, mps, fas = collate_gibbs_results([i[0] for i in results],
+                                              [i[1] for i in results],
+                                              [i[2] for i in results],
+                                              sources.index, sources.index,
+                                              sources.columns,
+                                              create_feature_tables, loo=True)
+        return mpm, mps, fas
+
     else:
-        results = list(map(f, sinks.values))
-    mpm, mps, fas = collate_gibbs_results([i[0] for i in results],
-                                          [i[1] for i in results],
-                                          [i[2] for i in results],
-                                          sinks.index, sources.index,
-                                          sources.columns,
-                                          create_feature_tables, loo=False)
-    return mpm, mps, fas
+        cp = ConditionalProbability(alpha1, alpha2, beta, sources.values)
+        f = partial(gibbs_sampler, cp=cp, restarts=restarts,
+                    draws_per_restart=draws_per_restart, burnin=burnin,
+                    delay=delay)
+        if cluster is not None:
+            results = cluster[:].map(f, sinks.values, block=True)
+        else:
+            results = list(map(f, sinks.values))
+        mpm, mps, fas = collate_gibbs_results([i[0] for i in results],
+                                              [i[1] for i in results],
+                                              [i[2] for i in results],
+                                              sinks.index, sources.index,
+                                              sources.columns,
+                                              create_feature_tables, loo=False)
+        return mpm, mps, fas
 
 
 def cumulative_proportions(all_envcounts, sink_ids, source_ids):
