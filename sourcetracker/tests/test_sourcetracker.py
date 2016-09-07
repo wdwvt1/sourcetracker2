@@ -23,7 +23,7 @@ from sourcetracker._sourcetracker import (biom_to_df,
                                           cumulative_proportions,
                                           single_sink_feature_table,
                                           ConditionalProbability,
-                                          gibbs_sampler, _gibbs, _gibbs_loo)
+                                          gibbs_sampler, gibbs)
 
 
 class TestCheckAndCorrectData(TestCase):
@@ -874,7 +874,7 @@ class TestGibbs(TestCase):
                                       expected_et_pairs[1, :])
 
     def test_consistency_when_gibbs_seeded(self):
-        '''Test consistency of `_gibbs` from run to run.
+        '''Test consistency of `gibbs` (normal) from run to run.
 
         Notes
         -----
@@ -899,10 +899,10 @@ class TestGibbs(TestCase):
                                index=['source1', 'source2'], columns=features)
 
         np.random.seed(1042)
-        mpm, mps, fts = _gibbs(sources, sinks, alpha1=.001, alpha2=.01, beta=1,
-                               restarts=3, draws_per_restart=5, burnin=50,
-                               delay=4, cluster=None,
-                               create_feature_tables=True)
+        mpm, mps, fts = gibbs(sources, sinks, alpha1=.001, alpha2=.01, beta=1,
+                              restarts=3, draws_per_restart=5, burnin=50,
+                              delay=4, cluster=None,
+                              create_feature_tables=True)
 
         possible_sources = ['source1', 'source2', 'Unknown']
         vals = np.array([[0.44, 0.44666667, 0.11333333]])
@@ -921,7 +921,7 @@ class TestGibbs(TestCase):
         pd.util.testing.assert_frame_equal(fts[0], exp_fts)
 
     def test_consistency_when_gibbs_loo_seeded(self):
-        '''Test consistency of `_gibbs_loo` from run to run.
+        '''Test consistency of `gibbs` (loo) from run to run.
 
         Notes
         -----
@@ -948,11 +948,11 @@ class TestGibbs(TestCase):
         sources = pd.DataFrame(vals, index=source_names, columns=feature_names)
 
         np.random.seed(1042)
-        obs_mpm, obs_mps, obs_fts = _gibbs_loo(sources, alpha1=.001,
-                                               alpha2=.01, beta=1, restarts=3,
-                                               draws_per_restart=5, burnin=50,
-                                               delay=4, cluster=None,
-                                               create_feature_tables=True)
+        obs_mpm, obs_mps, obs_fts = gibbs(sources, sinks=None, alpha1=.001,
+                                          alpha2=.01, beta=1, restarts=3,
+                                          draws_per_restart=5, burnin=50,
+                                          delay=4, cluster=None,
+                                          create_feature_tables=True)
 
         vals = np.array([[0., 0.62444444, 0., 0.01555556, 0.36],
                          [0.68444444, 0., 0.09333333, 0.12666667, 0.09555556],
@@ -1035,10 +1035,10 @@ class TestGibbs(TestCase):
         sinks = pd.DataFrame(sinks_data, index=sinks_names,
                              columns=feature_names)
 
-        obs_mpm, obs_mps, _ = _gibbs(sources, sinks, alpha1=.001, alpha2=.1,
-                                     beta=10, restarts=2, draws_per_restart=2,
-                                     burnin=5, delay=2, cluster=None,
-                                     create_feature_tables=False)
+        obs_mpm, obs_mps, _ = gibbs(sources, sinks, alpha1=.001, alpha2=.1,
+                                    beta=10, restarts=2, draws_per_restart=2,
+                                    burnin=5, delay=2, cluster=None,
+                                    create_feature_tables=False)
 
         exp_vals = np.array([[0.1695, 0.4781, 0.3497, 0.0027],
                              [0.1695, 0.4794, 0.3497, 0.0014],

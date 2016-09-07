@@ -19,7 +19,7 @@ from biom import load_table
 from ipyparallel import Client
 
 from sourcetracker._cli import cli
-from sourcetracker._sourcetracker import (biom_to_df, _gibbs, _gibbs_loo,
+from sourcetracker._sourcetracker import (biom_to_df, gibbs,
                                           intersect_and_sort_samples,
                                           get_samples, collapse_source_data,
                                           subsample_dataframe)
@@ -129,11 +129,11 @@ from sourcetracker._util import parse_sample_metadata
               type=click.STRING, show_default=True,
               help=('Sample metadata column indicating the type of each '
                     'source sample.'))
-def gibbs(table_fp, mapping_fp, output_dir, loo, jobs, alpha1, alpha2, beta,
-          source_rarefaction_depth, sink_rarefaction_depth, restarts,
-          draws_per_restart, burnin, delay, cluster_start_delay,
-          per_sink_feature_assignments, source_sink_column,
-          source_column_value, sink_column_value, source_category_column):
+def gibbs_cli(table_fp, mapping_fp, output_dir, loo, jobs, alpha1, alpha2,
+              beta, source_rarefaction_depth, sink_rarefaction_depth, restarts,
+              draws_per_restart, burnin, delay, cluster_start_delay,
+              per_sink_feature_assignments, source_sink_column,
+              source_column_value, sink_column_value, source_category_column):
     '''Gibb's sampler for Bayesian estimation of microbial sample sources.
 
     For details, see the project README file.
@@ -178,7 +178,6 @@ def gibbs(table_fp, mapping_fp, output_dir, loo, jobs, alpha1, alpha2, beta,
     if source_rarefaction_depth > 0:
         d = (csources.sum(1) >= source_rarefaction_depth)
         if not d.all():
-            print(csources.sum(1))
             too_shallow = (~d).sum()
             shallowest = csources.sum(1).min()
             raise ValueError(('You requested rarefaction of source samples at '
@@ -191,20 +190,23 @@ def gibbs(table_fp, mapping_fp, output_dir, loo, jobs, alpha1, alpha2, beta,
             csources = subsample_dataframe(csources, source_rarefaction_depth)
 
     # Prepare sink data and rarify if requested.
-    sinks = feature_table.loc[sink_samples, :]
-    if sink_rarefaction_depth > 0:
-        d = (sinks.sum(1) >= sink_rarefaction_depth)
-        if not d.all():
-            too_shallow = (~d).sum()
-            shallowest = sinks.sum(1).min()
-            raise ValueError(('You requested rarefaction of sink samples at '
-                              '%s, but there are %s sink samples that have '
-                              'less sequences than that. The shallowest of '
-                              'these is %s sequences.') %
-                             (sink_rarefaction_depth, too_shallow,
-                              shallowest))
-        else:
-            sinks = subsample_dataframe(sinks, sink_rarefaction_depth)
+    if not loo:
+        sinks = feature_table.loc[sink_samples, :]
+        if sink_rarefaction_depth > 0:
+            d = (sinks.sum(1) >= sink_rarefaction_depth)
+            if not d.all():
+                too_shallow = (~d).sum()
+                shallowest = sinks.sum(1).min()
+                raise ValueError(('You requested rarefaction of sink samples '
+                                  'at %s, but there are %s sink samples that '
+                                  'have less sequences than that. The '
+                                  'shallowest of these is %s sequences.') %
+                                 (sink_rarefaction_depth, too_shallow,
+                                  shallowest))
+            else:
+                sinks = subsample_dataframe(sinks, sink_rarefaction_depth)
+    else:
+        sinks = None
 
     # If we've been asked to do multiple jobs, we need to spin up a cluster.
     if jobs > 1:
@@ -216,16 +218,10 @@ def gibbs(table_fp, mapping_fp, output_dir, loo, jobs, alpha1, alpha2, beta,
         cluster = None
 
     # Run the computations.
-    if not loo:
-        mpm, mps, fas = \
-            _gibbs(csources, sinks, alpha1, alpha2, beta, restarts,
-                   draws_per_restart, burnin, delay, cluster=cluster,
-                   create_feature_tables=per_sink_feature_assignments)
-    else:
-        mpm, mps, fas = \
-            _gibbs_loo(csources, alpha1, alpha2, beta, restarts,
-                       draws_per_restart, burnin, delay, cluster=cluster,
-                       create_feature_tables=per_sink_feature_assignments)
+    mpm, mps, fas = gibbs(csources, sinks, alpha1, alpha2, beta, restarts,
+                          draws_per_restart, burnin, delay, cluster=cluster,
+                          create_feature_tables=per_sink_feature_assignments)
+
     # If we started a cluster, shut it down.
     if jobs > 1:
         cluster.shutdown(hub=True)
