@@ -148,7 +148,7 @@ def gibbs_cli(table_fp, mapping_fp, output_dir, loo, jobs, alpha1, alpha2,
     feature_table = biom_to_df(load_table(table_fp))
 
     # Do high level check on feature data.
-    feature_table = validate_gibbs_input(feature_data)
+    feature_table = validate_gibbs_input(feature_table)
 
     # Remove samples not shared by both feature and metadata tables and order
     # rows equivalently.
