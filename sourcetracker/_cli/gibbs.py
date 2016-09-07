@@ -48,24 +48,24 @@ from sourcetracker._util import parse_sample_metadata, biom_to_df
               help='Number of processes to launch.')
 @click.option('--alpha1', required=False, default=.001,
               type=click.FLOAT, show_default=True,
-              help=('Prior counts of each species in the training '
+              help=('Prior counts of each feature in the training '
                     'environments. Higher values decrease the trust in the '
                     'training environments, and make the source environment '
-                    'distrubitons over taxa smoother. By default, this is '
-                    'set to 0.001, which indicates reasonably high trust in '
-                    'all source environments, even those with few training '
-                    'sequences. This is useful when only a small number of '
-                    'biological samples are available from a source '
-                    'environment. A more conservative value would be 0.01.'))
-@click.option('--alpha2', required=False, default=.001,
+                    'distributions over taxa smoother. A value of 0.001 '
+                    'indicates reasonably high trust in all source '
+                    'environments, even those with few training sequences. A '
+                    'more conservative value would be 0.01.'))
+@click.option('--alpha2', required=False, default=.1,
               type=click.FLOAT, show_default=True,
-              help=('Prior counts of each species in Unknown environment. '
-                    'Higher values make the Unknown environment smoother and '
-                    'less prone to overfitting given a training sample.'))
+              help=('Prior counts of each species in `unknown` environment as '
+                    'a fraction of the counts of the current sink being '
+                    'evaluated. Higher values make the `unknown` environment '
+                    'smoother and less prone to overfitting given a training '
+                    'sample.'))
 @click.option('--beta', required=False, default=10,
-              type=click.INT, show_default=True,
+              type=click.FLOAT, show_default=True,
               help=('Count to be added to each species in each environment, '
-                    'including `unknown`.'))
+                    'including `unknown` for `p_v` calculations'.))
 @click.option('--source_rarefaction_depth', required=False, default=1000,
               type=click.IntRange(min=0, max=None), show_default=True,
               help=('Depth at which to rarify sources. If 0, no '
@@ -91,14 +91,14 @@ from sourcetracker._util import parse_sample_metadata, biom_to_df
                     '(draw) will be taken. Higher values allow more '
                     'convergence towards the true distribtion before draws '
                     'are taken.'))
-@click.option('--delay', required=False, default=10,
+@click.option('--delay', required=False, default=1,
               type=click.INT, show_default=True,
               help=('Number passes between each sampling (draw) of the '
                     'Markov chain. Once the burnin passes have been made, a '
-                    'sample will be taken every `delay` number of passes. '
-                    'This is also known as `thinning`. Thinning helps reduce '
-                    'the impact of correlation between adjacent states of the '
-                    'Markov chain.'))
+                    'sample will be taken, and then taken again every `delay` '
+                    'number of passes. This is also known as `thinning`. '
+                    'Thinning helps reduce the impact of correlation between '
+                    'adjacent states of the Markov chain.'))
 @click.option('--cluster_start_delay', required=False, default=25,
               type=click.INT, show_default=True,
               help=('When using multiple jobs, the script has to start an '

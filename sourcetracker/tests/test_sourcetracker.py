@@ -18,6 +18,7 @@ from sourcetracker._sourcetracker import (intersect_and_sort_samples,
                                           collapse_source_data,
                                           subsample_dataframe,
                                           validate_gibbs_input,
+                                          validate_gibbs_parameters,
                                           collate_gibbs_results,
                                           get_samples,
                                           generate_environment_assignments,
@@ -169,6 +170,48 @@ class TestValidateGibbsInput(TestCase):
                              index=['s%s' % i for i in range(50)],
                              columns=['feature%s' % i for i in range(4)])
         self.assertRaises(ValueError, validate_gibbs_input, sources, sinks)
+
+
+class TestValidateGibbsParams(TestCase):
+
+    def test_acceptable_inputs(self):
+        # All values acceptable, expect no errors.
+        alpha1 = .001
+        alpha2 = .1
+        beta = 10
+        restarts = 10
+        draws_per_restart = 1
+        burnin = 100
+        delay = 1
+        self.assertTrue(validate_gibbs_parameters(alpha1, alpha2, beta,
+                        restarts, draws_per_restart, burnin, delay))
+
+        alpha1 = alpha2 = beta = 0
+        self.assertTrue(validate_gibbs_parameters(alpha1, alpha2, beta,
+                        restarts, draws_per_restart, burnin, delay))
+
+    def test_not_acceptable_inputs(self):
+        # One of the float params is negative.
+        alpha1 = -.001
+        alpha2 = .1
+        beta = 10
+        restarts = 10
+        draws_per_restart = 1
+        burnin = 100
+        delay = 1
+        self.assertFalse(validate_gibbs_parameters(alpha1, alpha2, beta,
+                         restarts, draws_per_restart, burnin, delay))
+
+        # One of the int params is 0.
+        alpha1 = .001
+        restarts = 0
+        self.assertFalse(validate_gibbs_parameters(alpha1, alpha2, beta,
+                         restarts, draws_per_restart, burnin, delay))
+
+        # One of the int params is a float.
+        restarts = 1.34
+        self.assertFalse(validate_gibbs_parameters(alpha1, alpha2, beta,
+                         restarts, draws_per_restart, burnin, delay))
 
 
 class TestIntersectAndSortSamples(TestCase):
@@ -943,6 +986,15 @@ class TestGibbs(TestCase):
                                       seq_env_assignments)
         np.testing.assert_array_equal(obs_ta.squeeze()[order],
                                       expected_et_pairs[1, :])
+
+    def test_gibbs_params_bad(self):
+        # test gibbs when the parameters passed are bad
+        features = ['o1', 'o2', 'o3', 'o4', 'o5', 'o6']
+        source1 = np.array([10, 10, 10, 0, 0, 0])
+        source2 = np.array([0, 0, 0, 10, 10, 10])
+        sources = pd.DataFrame(np.vstack((source1, source2)).astype(np.int32),
+                               index=['source1', 'source2'], columns=features)
+        self.assertRaises(ValueError, gibbs, sources, alpha1=-.3)
 
     def test_consistency_when_gibbs_seeded(self):
         '''Test consistency of `gibbs` (normal) from run to run.

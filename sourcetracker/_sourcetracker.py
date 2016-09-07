@@ -78,6 +78,19 @@ def validate_gibbs_input(sources, sinks=None):
         return sources.astype(np.int32)
 
 
+def validate_gibbs_parameters(alpha1, alpha2, beta, restarts,
+                              draws_per_restart, burnin, delay):
+    '''Return `True` if params numerically acceptable. See `gibbs` for docs.'''
+    flt_vals = [alpha1, alpha2, beta]
+    int_vals = [restarts, draws_per_restart, burnin, delay]
+
+    int_check = all(isinstance(val, (int, np.int32, np.int64)) for val in
+                    int_vals)
+    pos_int = all(val > 0 for val in int_vals)
+    non_neg = all(val >= 0 for val in flt_vals)
+    return int_check and pos_int and non_neg
+
+
 def intersect_and_sort_samples(sample_metadata, feature_table):
     '''Return input tables retaining only shared samples, row order equivalent.
 
@@ -244,14 +257,7 @@ class ConditionalProbability(object):
         Paramaters
         ----------
         alpha1 : float
-            Prior counts of each feature in the training environments. Higher
-            values decrease the trust in the training environments, and make
-            the source environment distributions over taxa smoother. By
-            default, this is set to 0.001, which indicates reasonably high
-            trust in all source environments, even those with few training
-            sequences. This is useful when only a small number of biological
-            samples are available from a source environment. A more
-            conservative value would be 0.01.
+            Prior counts of each feature in the training environments.
         alpha2 : float
             Prior counts of each feature in the Unknown environment. Higher
             values make the Unknown environment smoother and less prone to
@@ -395,7 +401,7 @@ class ConditionalProbability(object):
         m_V : float
             Sum of the training sequences currently assigned to the unknown
             environment (over all taxa).
-        n_vnoti : float
+        n_vnoti : np.array
             Counts of the test sequences in each environment at the current
             iteration of the sampler.
 
@@ -571,16 +577,22 @@ def gibbs_sampler(sink, cp, restarts, draws_per_restart, burnin, delay):
     return (final_envcounts, final_env_assignments, final_taxon_assignments)
 
 
-def gibbs(sources, sinks, alpha1=.001, alpha2=.1, beta=10, restarts=10,
+def gibbs(sources, sinks=None, alpha1=.001, alpha2=.1, beta=10, restarts=10,
           draws_per_restart=1, burnin=100, delay=1, cluster=None,
           create_feature_tables=True):
     '''Gibb's sampling API.
 
     Notes
     -----
-    This function exists to allow API calls to source/sink prediction. It is a
-    candidate public API call. You can track progress on this via
-    https://github.com/biota/sourcetracker2/issues/31
+    This function exists to allow API calls to source/sink prediction and
+    leave-one-out (LOO) source prediction. It is a candidate public API call.
+
+    Input validation is done on the sources and sinks (if not None). They must
+    be dataframes with integerial data (or castable to such). If both
+    sources and sinks are provided, their columns must agree exactly.
+
+    Input validation is done on the Gibb's parameters, to make sure they are
+    numerically acceptable (i.e. non-negative).
 
     Warnings
     --------
@@ -707,6 +719,12 @@ def gibbs(sources, sinks, alpha1=.001, alpha2=.1, beta=10, restarts=10,
                               restarts, draws_per_restart, burnin, delay,
                               cluster=c, create_feature_tables=True)
     '''
+    if not validate_gibbs_parameters(alpha1, alpha2, beta, restarts,
+                                     draws_per_restart, burnin, delay):
+        raise ValueError('The supplied Gibbs parameters are not acceptable. '
+                         'Please review the `gibbs` doc string or call the '
+                         'help function in the CLI.')
+
     # Run LOO predictions on `sources`.
     if sinks is None:
         def f(cp_and_sink):
