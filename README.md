@@ -36,9 +36,9 @@ and feature (OTU) tables we have included [here](https://github.com/biota/source
 
 ## API
 For descriptions of the requirements, please see documentation in the `gibbs`
-function. Very briefly, this function wraps the main workhorse function `gibbs_sampler`
-and exposes all the parameters necessary to control the behavior of the Gibb's sampling
-as well as the parallel functionality etc.
+function. This function wraps the main workhorse function `gibbs_sampler`
+and exposes all the parameters necessary to control the behavior of the Gibb's
+sampling as well as the parallel functionality etc.
 
 A superficial but important difference from the CLI framework is that, internally,
 SourceTracker 2 represents all tables as sample X feature (samples are rows,
@@ -55,7 +55,8 @@ nearest integer.
 
 Rarefaction is performed by default at 1000 seqs/sample for both sinks and
 sources. This is done to prevent samples with more counts from dominating the
-contributions. Rarefaction depth can be set (or entirely disabled) with the ``--source_rarefaction_depth`` and ``--sink_rarefaction_depth`` parameters. Sourcesamples which are collapsed are rarefied after collapse.
+contributions. Rarefaction depth can be set (or entirely disabled) with the ``--source_rarefaction_depth`` and ``--sink_rarefaction_depth`` parameters. Sources
+samples which are collapsed are rarefied after collapse.
 
 Samples which are not present in both the input feature table and the metadata
 are excluded from the analysis.
@@ -65,9 +66,9 @@ their mean value for each feature is computed and used in the analysis. See the
 'Theory' section below for a discussion of this approach.
 
 ## API
-The `gibbs` function does no preprocessing. Validty checks are done
-on the input to the `gibbs` data, but no collapsing or rarefaction is performed.
-If `sources` and `sinks` dataframes are passed, the columns of the dataframes are
+The `gibbs` function does not perform collapsing or rarefaction. Validty checks
+are performed on the input to the `gibbs` data. If `sources` and `sinks`
+dataframes are passed, the columns of the dataframes are
 checked and must overlap exactly (identical order).
 
 
@@ -85,7 +86,7 @@ output feature table would be 'hand_sample3.feature_table.txt'. These tables rec
 origin source of each sink sequence (count of a feature).
 
 ## API
-The outputs of the `gibbs` function is identical to the command line outputs,
+The outputs of the `gibbs` function are identical to the command line outputs,
 just in dataframe form.
 
 

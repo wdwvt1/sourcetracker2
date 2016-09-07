@@ -57,14 +57,14 @@ from sourcetracker._util import parse_sample_metadata, biom_to_df
                     'more conservative value would be 0.01.'))
 @click.option('--alpha2', required=False, default=.1,
               type=click.FLOAT, show_default=True,
-              help=('Prior counts of each species in `unknown` environment as '
-                    'a fraction of the counts of the current sink being '
+              help=('Prior counts of each feature in the `unknown` environment'
+                    ' as a fraction of the counts of the current sink being '
                     'evaluated. Higher values make the `unknown` environment '
                     'smoother and less prone to overfitting given a training '
                     'sample.'))
 @click.option('--beta', required=False, default=10,
               type=click.FLOAT, show_default=True,
-              help=('Count to be added to each species in each environment, '
+              help=('Count to be added to each feature in each environment, '
                     'including `unknown` for `p_v` calculations.'))
 @click.option('--source_rarefaction_depth', required=False, default=1000,
               type=click.IntRange(min=0, max=None), show_default=True,
@@ -180,13 +180,13 @@ def gibbs_cli(table_fp, mapping_fp, output_dir, loo, jobs, alpha1, alpha2,
     if source_rarefaction_depth > 0:
         d = (csources.sum(1) >= source_rarefaction_depth)
         if not d.all():
-            too_shallow = (~d).sum()
+            count_too_shallow = (~d).sum()
             shallowest = csources.sum(1).min()
             raise ValueError(('You requested rarefaction of source samples at '
                               '%s, but there are %s collapsed source samples '
                               'that have less sequences than that. The '
                               'shallowest of these is %s sequences.') %
-                             (source_rarefaction_depth, too_shallow,
+                             (source_rarefaction_depth, count_too_shallow,
                               shallowest))
         else:
             csources = subsample_dataframe(csources, source_rarefaction_depth)
@@ -198,13 +198,13 @@ def gibbs_cli(table_fp, mapping_fp, output_dir, loo, jobs, alpha1, alpha2,
         if sink_rarefaction_depth > 0:
             d = (sinks.sum(1) >= sink_rarefaction_depth)
             if not d.all():
-                too_shallow = (~d).sum()
+                count_too_shallow = (~d).sum()
                 shallowest = sinks.sum(1).min()
                 raise ValueError(('You requested rarefaction of sink samples '
                                   'at %s, but there are %s sink samples that '
                                   'have less sequences than that. The '
                                   'shallowest of these is %s sequences.') %
-                                 (sink_rarefaction_depth, too_shallow,
+                                 (sink_rarefaction_depth, count_too_shallow,
                                   shallowest))
             else:
                 sinks = subsample_dataframe(sinks, sink_rarefaction_depth)

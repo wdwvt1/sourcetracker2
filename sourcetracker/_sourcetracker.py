@@ -79,22 +79,29 @@ def validate_gibbs_input(sources, sinks=None):
             raise ValueError('Dataframes do not contain identical (and '
                              'identically ordered) columns. Columns must '
                              'match exactly.')
-        return sources.astype(np.int32), sinks.astype(np.int32)
+        return (sources.astype(np.int32, copy=False),
+                sinks.astype(np.int32, copy=False))
     else:
-        return sources.astype(np.int32)
+        return sources.astype(np.int32, copy=False)
 
 
 def validate_gibbs_parameters(alpha1, alpha2, beta, restarts,
                               draws_per_restart, burnin, delay):
     '''Return `True` if params numerically acceptable. See `gibbs` for docs.'''
-    flt_vals = [alpha1, alpha2, beta]
+    real_vals = [alpha1, alpha2, beta]
     int_vals = [restarts, draws_per_restart, burnin, delay]
-
-    int_check = all(isinstance(val, (int, np.int32, np.int64)) for val in
-                    int_vals)
-    pos_int = all(val > 0 for val in int_vals)
-    non_neg = all(val >= 0 for val in flt_vals)
-    return int_check and pos_int and non_neg
+    # Check everything is real.
+    if all(np.isreal(val) for val in real_vals + int_vals):
+        # Check that integer values are some type of int.
+        int_check = all(isinstance(val, (int, np.int32, np.int64)) for val in
+                        int_vals)
+        # All integer values must be > 0.
+        pos_int = all(val > 0 for val in int_vals)
+        # All real values must be non-negative.
+        non_neg = all(val >= 0 for val in real_vals)
+        return int_check and pos_int and non_neg and real_vals
+    else:  # Failed to be all numeric values.
+        False
 
 
 def intersect_and_sort_samples(sample_metadata, feature_table):
@@ -591,14 +598,15 @@ def gibbs(sources, sinks=None, alpha1=.001, alpha2=.1, beta=10, restarts=10,
     Notes
     -----
     This function exists to allow API calls to source/sink prediction and
-    leave-one-out (LOO) source prediction. It is a candidate public API call.
+    leave-one-out (LOO) source prediction.
 
     Input validation is done on the sources and sinks (if not None). They must
     be dataframes with integerial data (or castable to such). If both
     sources and sinks are provided, their columns must agree exactly.
 
     Input validation is done on the Gibb's parameters, to make sure they are
-    numerically acceptable (i.e. non-negative).
+    numerically acceptable (all must be non-negative, some must be positive
+    integers - see below).
 
     Warnings
     --------
@@ -989,13 +997,14 @@ def collate_gibbs_results(all_envcounts, all_env_assignments,
     return props, props_stds, fts
 
 
-def plot_mpm(mpm, cm=plt.cm.viridis):
+def plot_mpm(mpm, cm=plt.cm.viridis, xlabel='Sources', ylabel='Sinks',
+             title='Mixing Proportions (as Fraction)'):
     '''Make a basic mixing proportion histogram.'''
     fig = plt.figure()
     ax = fig.add_subplot(1, 1, 1)
     sns.heatmap(mpm, vmin=0, vmax=1.0, cmap=cm, annot=True, linewidths=.5,
                 ax=ax)
-    ax.set_xlabel('Sources')
-    ax.set_ylabel('Sinks')
-    ax.set_title('Mixing Proportions (as Fraction)')
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
     return fig, ax

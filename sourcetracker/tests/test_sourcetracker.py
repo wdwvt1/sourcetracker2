@@ -213,6 +213,17 @@ class TestValidateGibbsParams(TestCase):
         self.assertFalse(validate_gibbs_parameters(alpha1, alpha2, beta,
                          restarts, draws_per_restart, burnin, delay))
 
+        # A param is a string.
+        restarts = '3.2232'
+        self.assertFalse(validate_gibbs_parameters(alpha1, alpha2, beta,
+                         restarts, draws_per_restart, burnin, delay))
+
+        # A param is a nan.
+        restarts = 3
+        alpha1 = np.nan
+        self.assertFalse(validate_gibbs_parameters(alpha1, alpha2, beta,
+                         restarts, draws_per_restart, burnin, delay))
+
 
 class TestIntersectAndSortSamples(TestCase):
 
@@ -997,7 +1008,7 @@ class TestGibbs(TestCase):
         self.assertRaises(ValueError, gibbs, sources, alpha1=-.3)
 
     def test_consistency_when_gibbs_seeded(self):
-        '''Test consistency of `gibbs` (normal) from run to run.
+        '''Test consistency of `gibbs` (without LOO) from run to run.
 
         Notes
         -----
