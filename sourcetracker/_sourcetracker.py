@@ -668,6 +668,7 @@ def gibbs(sources, sinks=None, alpha1=.001, alpha2=.1, beta=10, restarts=10,
 
     Examples
     --------
+    # An example of using the normal prediction.
     >>> import pandas as pd
     >>> import numpy as np
     >>> from ipyparallel import Client
@@ -716,6 +717,11 @@ def gibbs(sources, sinks=None, alpha1=.001, alpha2=.1, beta=10, restarts=10,
     >>> time.sleep(25)
     >>> c = Client()
     >>> mpm, mps, fas = gibbs(source_df, sink_df, alpha1, alpha2, beta,
+                              restarts, draws_per_restart, burnin, delay,
+                              cluster=c, create_feature_tables=True)
+
+    # LOO prediction.
+    >>> mpm, mps, fas = gibbs(source_df, sinks=None, alpha1, alpha2, beta,
                               restarts, draws_per_restart, burnin, delay,
                               cluster=c, create_feature_tables=True)
     '''
