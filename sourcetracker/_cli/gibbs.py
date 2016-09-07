@@ -22,7 +22,7 @@ from sourcetracker._cli import cli
 from sourcetracker._sourcetracker import (gibbs, intersect_and_sort_samples,
                                           get_samples, collapse_source_data,
                                           subsample_dataframe,
-                                          validate_gibbs_input)
+                                          validate_gibbs_input, plot_mpm)
 
 from sourcetracker._util import parse_sample_metadata, biom_to_df
 
@@ -237,3 +237,7 @@ def gibbs_cli(table_fp, mapping_fp, output_dir, loo, jobs, alpha1, alpha2,
         for sink, fa in zip(mpm.index, fas):
             fa.to_csv(os.path.join(output_dir, sink + '.feature_table.txt'),
                       sep='\t')
+
+    # Plot contributions.
+    fig, ax = plot_mpm(mpm)
+    fig.savefig(os.path.join(output_dir, 'mixing_proportions.pdf', dpi=300))

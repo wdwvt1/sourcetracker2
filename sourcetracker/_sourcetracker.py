@@ -13,6 +13,8 @@ import numpy as np
 from skbio.stats import subsample_counts
 import pandas as pd
 from functools import partial
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 
 def validate_gibbs_input(sources, sinks=None):
@@ -981,3 +983,15 @@ def collate_gibbs_results(all_envcounts, all_env_assignments,
             fts = None
 
     return props, props_stds, fts
+
+
+def plot_mpm(mpm, cm=plt.cm.viridis):
+    '''Make a basic mixing proportion histogram.'''
+    fig = plt.figure()
+    ax = fig.add_subplot(1, 1, 1)
+    sns.heatmap(mpm, vmin=0, vmax=1.0, cmap=cm, annot=True, linewidths=.5,
+                ax=ax)
+    ax.set_xlabel('Sources')
+    ax.set_ylabel('Sinks')
+    ax.set_title('Mixing Proportions (as Fraction)')
+    return fig, ax
