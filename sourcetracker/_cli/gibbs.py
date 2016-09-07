@@ -19,11 +19,12 @@ from biom import load_table
 from ipyparallel import Client
 
 from sourcetracker._cli import cli
-from sourcetracker._sourcetracker import (biom_to_df, gibbs,
-                                          intersect_and_sort_samples,
+from sourcetracker._sourcetracker import (gibbs, intersect_and_sort_samples,
                                           get_samples, collapse_source_data,
-                                          subsample_dataframe)
-from sourcetracker._util import parse_sample_metadata
+                                          subsample_dataframe,
+                                          validate_gibbs_input)
+
+from sourcetracker._util import parse_sample_metadata, biom_to_df
 
 
 @cli.command(name='gibbs')
@@ -142,11 +143,12 @@ def gibbs_cli(table_fp, mapping_fp, output_dir, loo, jobs, alpha1, alpha2,
     # failed if so.
     os.mkdir(output_dir)
 
-    # Load the metadata file and feature table. Do a data check on the
-    # feature_table.
+    # Load the metadata file and feature table.
     sample_metadata = parse_sample_metadata(open(mapping_fp, 'U'))
-    _ft = load_table(table_fp)
-    feature_table = biom_to_df(_ft, apply_fractional_value_correction=True)
+    feature_table = biom_to_df(load_table(table_fp))
+
+    # Do high level check on feature data.
+    feature_table = validate_gibbs_input(feature_data)
 
     # Remove samples not shared by both feature and metadata tables and order
     # rows equivalently.
@@ -189,7 +191,8 @@ def gibbs_cli(table_fp, mapping_fp, output_dir, loo, jobs, alpha1, alpha2,
         else:
             csources = subsample_dataframe(csources, source_rarefaction_depth)
 
-    # Prepare sink data and rarify if requested.
+    # Prepare to rarify sink data if we are not doing LOO. If we are doing loo,
+    # we skip the rarefaction, and set sinks to `None`.
     if not loo:
         sinks = feature_table.loc[sink_samples, :]
         if sink_rarefaction_depth > 0:
