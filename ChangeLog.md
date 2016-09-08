@@ -2,8 +2,9 @@
 
 ## 2.0.1-dev (changes since 2.0.1 go here)
 
- * A unified API for Gibb's sampling (including the previous ``_gibbs`` and 
-   ``_gibbs_loo``) has been created and is accessible as ``gibbs``.
+ * A unified API for sourcetracking with gibbs sampling, including
+   leave-one-out cross-validation, has been created and is accessible as
+   sourcetracker.gibbs.
  * Basic plotting and comparison functionality has been added.
 
  * A candidate public API has been created for both normal sink/source
