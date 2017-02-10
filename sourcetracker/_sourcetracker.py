@@ -265,7 +265,7 @@ def generate_environment_assignments(n, num_sources):
 
 class ConditionalProbability(object):
     def __init__(self, alpha1, alpha2, beta, source_data):
-        r"""Set properties used for calculating the conditional probability.
+        r'''Set properties used for calculating the conditional probability.
 
         Paramaters
         ----------
@@ -365,7 +365,7 @@ class ConditionalProbability(object):
         ----------
         .. [1] Knights et al. "Bayesian community-wide culture-independent
            source tracking", Nature Methods 2011.
-        """
+        '''
         self.alpha1 = alpha1
         self.alpha2 = alpha2
         self.beta = beta
@@ -379,11 +379,11 @@ class ConditionalProbability(object):
         self.joint_probability = np.zeros(self.V, dtype=np.float64)
 
     def set_n(self, n):
-        """Set the sum of the sink."""
+        '''Set the sum of the sink.'''
         self.n = n
 
     def precalculate(self):
-        """Precompute all static quantities of the probability matrix."""
+        '''Precompute all static quantities of the probability matrix.'''
         # Known source.
         self.known_p_tv = (self.m_xivs + self.alpha1) / \
                           (self.m_vs + self.tau * self.alpha1)
@@ -401,7 +401,7 @@ class ConditionalProbability(object):
         self.alpha2_n_tau = self.alpha2_n * self.tau
 
     def calculate_cp_slice(self, xi, m_xiV, m_V, n_vnoti):
-        """Calculate slice of the conditional probability matrix.
+        '''Calculate slice of the conditional probability matrix.
 
         Parameters
         ----------
@@ -423,7 +423,7 @@ class ConditionalProbability(object):
         self.joint_probability : np.array
             The joint conditional probability distribution for the the current
             taxon based on the current state of the sampler.
-        """
+        '''
         # Components for known sources, i.e. indices {0,1...V-2}.
         self.joint_probability[:-1] = \
             self.known_source_cp[:, xi] * (n_vnoti[:-1] + self.beta)
@@ -434,8 +434,25 @@ class ConditionalProbability(object):
         return self.joint_probability
 
 
-def gibbs_sampler(sink, cp, restarts, draws_per_restart, burnin, delay):
-    """Run Gibbs Sampler to estimate feature contributions from a sink sample.
+def gibbs_sampler(sink, cp, restarts, draws_per_restart, burnin, delay,
+                  autoc=None):
+    '''Run Gibbs Sampler to estimate feature contributions from a sink sample.
+
+    Extended Summary
+    ----------------
+    This function can run in two modes. In the first mode, the Markov chain is
+    grown for a determined number of steps and values are taken at fixed
+    intervals. In the second mode, the values the chain produces are monitored
+    at each step, and if a convergence criterion is met, the function will
+    terminate rather than continuing to draw. This difference is reflected in
+    the following changes to parameter definition.
+
+    If `autoc` is not `None`, the meaning of the `draws_per_restart` parameter
+    changes. If `autoc` is `None`, `draws_per_restart` draws will be taken. If
+    `True`, this function will check for convergence in the number of counts in
+    each environment at each draw (after `burnin` draws have passed). If
+    convergence is reached it will stop drawing before `draws_per_restart`.
+    `delay` will be set to `1` if `autoc` is passed.
 
     Parameters
     ----------
@@ -462,6 +479,12 @@ def gibbs_sampler(sink, cp, restarts, draws_per_restart, burnin, delay):
         additional samples will be drawn every `delay` number of passes. This
         is also known as 'thinning'. Thinning helps reduce the impact of
         correlation between adjacent states of the Markov chain.
+    autoc : function or None
+        Determines what mode the function will be run in. If not `None`,
+        `autoc` will be used to determine if the chain has converged. `autoc`
+        must accept two arguments; the `final_envcounts` array and an index
+        parameter. The index parameter indicates which row of `final_envcounts`
+        to evaluate as the current target for convergence.
 
     Returns
     -------
@@ -478,7 +501,14 @@ def gibbs_sampler(sink, cp, restarts, draws_per_restart, burnin, delay):
         ordering (same ordering as `final_env_assignments`). The [i, j] entry
         is the environment that the taxon `final_env_assignments[i, j]` is
         determined to have come from in draw i (j is the environment).
-    """
+    times : np.array
+        If `autoc` was not `None`, this is a 1D array with the number of draws
+        taken to converge for each restart. If convergence was not achieved for
+        restart i, the ith entry of this array will be `draws_per_restart`.
+    conv_chain_fraction : float
+        If `autoc` was not `None`, this is the fraction of restarts which
+        converged.
+    '''
     # Basic bookkeeping information we will use throughout the function.
     num_sources = cp.V
     num_features = cp.tau
@@ -489,10 +519,18 @@ def gibbs_sampler(sink, cp, restarts, draws_per_restart, burnin, delay):
     total_draws = restarts * draws_per_restart
     total_passes = burnin + (draws_per_restart - 1) * delay + 1
 
+    # If autoconvergence is requested, we need to update the parameters to
+    # reflect this strategy.
+    if autoc is not None:
+        total_passes = draws_per_restart + burnin
+        total_draws = restarts * draws_per_restart
+        delay = 1
+
     # Results containers.
     final_envcounts = np.zeros((total_draws, num_sources), dtype=np.int32)
     final_env_assignments = np.zeros((total_draws, sink_sum), dtype=np.int32)
     final_taxon_assignments = np.zeros((total_draws, sink_sum), dtype=np.int32)
+    convergence_times = np.zeros((restarts, 2), dtype=np.int32)
 
     # Sequences from the sink will be randomly assigned a source environment
     # and then reassigned based on an increasingly accurate set of
@@ -520,6 +558,10 @@ def gibbs_sampler(sink, cp, restarts, draws_per_restart, burnin, delay):
     unknown_idx = num_sources - 1
 
     for restart in range(restarts):
+        # A bookkeeping variable to regenerate every restart. We'll use this
+        # only if autoc is requested.
+        autoc_drawcount = 0
+
         # Generate random source assignments for each sequence in the sink
         # using a uniform distribution.
         seq_env_assignments, envcounts = \
@@ -592,16 +634,109 @@ def gibbs_sampler(sink, cp, restarts, draws_per_restart, burnin, delay):
                 final_env_assignments[drawcount] = seq_env_assignments
                 final_taxon_assignments[drawcount] = taxon_sequence
 
-                # We've made a draw, update this index so that the next
-                # iteration will be placed in the correct index of results.
+                if autoc is not None:
+                    converged = autoc(final_envcounts, autoc_drawcount,
+                                      drawcount)
+                    if converged:
+                        convergence_times[restart, 0] = drawcount
+                        convergence_times[restart, 1] = autoc_drawcount
+                        break
+                    elif not converged and rep < total_passes:
+                        autoc_drawcount += 1
+                    elif not converged and rep == total_passes:
+                        convergence_times[restart, 0] = drawcount
+                        convergence_times[restart, 1] = -1
+
+                # We've completed making a draw (and checking for convergence
+                # if asked to do so). We incriment the index so that the next
+                # iteration will be placed in the correct row of results.
                 drawcount += 1
 
-    return (final_envcounts, final_env_assignments, final_taxon_assignments)
+    if autoc is not None:
+        conv_chain_fraction = (convergence_times[:, 1] != -1).sum() / restarts
+
+        # For chains that converged we'll return the first draw satisfying the
+        # convergence criterion. For chains that don't converge we'll return
+        # the final draw (`draws_per_restart`).
+        idxs = convergence_times[:, 0]
+        final_envcounts = final_envcounts[idxs, :]
+        final_env_assignments = final_env_assignments[idxs, :]
+        final_taxon_assignments = final_taxon_assignments[idxs, :]
+
+        times = np.where(convergence_times[:, 1] == -1, np.nan,
+                         convergence_times[:, 1])
+        return (final_envcounts, final_env_assignments,
+                final_taxon_assignments, times, conv_chain_fraction)
+
+    else:
+        return (final_envcounts, final_env_assignments,
+                final_taxon_assignments)
+
+
+def _converged(envcounts, draw, idx, tolerance=.1, radius=5, min_sum=20):
+    '''Determines if `envcounts` has stabilized within `tolerance`.
+
+    Extended Summary
+    ----------------
+    Environments that have few counts will have high proportional changes from
+    draw to draw. Convergence should not be prevented because an environment
+    had 50% change by going from 1 to 2. To prevent this behavior we require
+    at least `min_sum` counts to be considered for stabilization.
+
+    Parameters
+    ----------
+    envcounts : np.array
+        2D array of ints. Rows are draws, columns are sources. The [i, j] entry
+        is the number of sequences from draw i that where assigned to have come
+        from environment j.
+    draw : int
+        Represents the number of draws since the last resart.
+    idx : int
+        The index in `envcounts` that represents the last draw. Because
+        `gibbs_sampler` pre-allocates an array for envcounts, we need to know
+        the last row that was filled in.
+    tolerance : float
+        Fractional difference allowed between different iterations of envcounts
+        for those envcounts to be considered convergent. Assessed on a
+        per-environment (i.e. per column) basis.
+    radius : int
+        The number of envcount vectors that must be within tolerance of
+        `envcounts[-1]` to be considered convergent.
+    min_sum : int > 0
+        Minimum count that an environment must have in `radius` of the last
+        draw of this environment to be considered for convergence testing.
+
+    Returns
+    -------
+    int
+        `1` if convergence has been achieved, `0` otherwise.
+    '''
+    # We have to have taken at least `radius` draws.
+    if draw < radius:
+        return 0
+    # Environments with too few sequences will not be checked for convergence
+    # since they are likely to have fractional changes that are very large. We
+    # will ignore a non stable environment that fluctuates between large
+    # numbers and a number below `min_sum` within `radius` of the target draw.
+    # This situation is infrequent in our experience; environments do not
+    # change contributions that rapidly.
+    check_cols = (envcounts[idx - (radius - 1): idx + 1] >= min_sum).all(0)
+    # If no environment has enough sequences to be counted for convergence, we
+    # return `False` to prevent a vacuously true evaluation below.
+    if (check_cols == False).all():  # noqa: E712
+        return 0
+    last = envcounts[idx, check_cols]
+    idxs_to_check = envcounts[idx - (radius - 1): idx + 1, check_cols]
+    frac_changes = (idxs_to_check - last) / last
+    if (np.abs(frac_changes) > tolerance).any():
+        return 0
+    else:
+        return 1
 
 
 def gibbs(sources, sinks=None, alpha1=.001, alpha2=.1, beta=10, restarts=10,
           draws_per_restart=1, burnin=100, delay=1, cluster=None,
-          create_feature_tables=True):
+          create_feature_tables=True, autoc=None):
     '''Gibb's sampling API.
 
     Notes
@@ -675,6 +810,14 @@ def gibbs(sources, sinks=None, alpha1=.001, alpha2=.1, beta=10, restarts=10,
         sink. This option can consume large amounts of memory if there are many
         source, sinks, and features. If `False`, feature tables are not
         created.
+    autoc : function or None
+        Determines whether `draws_per_restart` will be taken for each resart
+        If `None`, the Markov chain is grown for a determined number of steps
+        and values are taken at fixed intervals. If a function, the values the
+        chain produces are monitored at each step, and if a convergence
+        criterion is met, the function will terminate rather than continuing to
+        draw until `draws_per_restart` draws have been made. For details on the
+        form the function can take, see `gibbs_sampler` documentation.
 
     Returns
     -------
@@ -688,6 +831,9 @@ def gibbs(sources, sinks=None, alpha1=.001, alpha2=.1, beta=10, restarts=10,
     fas : list
         ith item is a pd.DataFrame of the average feature assignments from each
         source for the ith sink (in the same order as rows of `mpm` and `mps`).
+    convs : DataFrame
+        Only returned if `autoc` is not `None`. Indicates the proportion of
+        convergent chains for each sample.
 
     Examples
     --------
@@ -768,7 +914,7 @@ def gibbs(sources, sinks=None, alpha1=.001, alpha2=.1, beta=10, restarts=10,
             # access the gibbs_sampler function.
             from sourcetracker._sourcetracker import gibbs_sampler
             return gibbs_sampler(cp_and_sink[1], cp_and_sink[0], restarts,
-                                 draws_per_restart, burnin, delay)
+                                 draws_per_restart, burnin, delay, autoc)
         cps_and_sinks = []
         for source in sources.index:
             _sources = sources.select(lambda x: x != source)
@@ -786,14 +932,13 @@ def gibbs(sources, sinks=None, alpha1=.001, alpha2=.1, beta=10, restarts=10,
                                               sources.index, sources.index,
                                               sources.columns,
                                               create_feature_tables, loo=True)
-        return mpm, mps, fas
 
     # Run normal prediction on `sinks`.
     else:
         cp = ConditionalProbability(alpha1, alpha2, beta, sources.values)
         f = partial(gibbs_sampler, cp=cp, restarts=restarts,
                     draws_per_restart=draws_per_restart, burnin=burnin,
-                    delay=delay)
+                    delay=delay, autoc=autoc)
         if cluster is not None:
             results = cluster[:].map(f, sinks.values, block=True)
         else:
@@ -804,6 +949,15 @@ def gibbs(sources, sinks=None, alpha1=.001, alpha2=.1, beta=10, restarts=10,
                                               sinks.index, sources.index,
                                               sources.columns,
                                               create_feature_tables, loo=False)
+
+    # Collate convergence time results
+    if autoc is not None:
+        cols = ['r_%i' % i for i in range(restarts)]
+        convs = pd.DataFrame(np.array([i[3] for i in results]),
+                             index=sinks.index, columns=cols)
+        convs['converging_fraction'] = [i[4] for i in results]
+        return mpm, mps, fas, convs
+    else:
         return mpm, mps, fas
 
 

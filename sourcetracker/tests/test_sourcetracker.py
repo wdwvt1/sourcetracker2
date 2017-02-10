@@ -27,7 +27,7 @@ from sourcetracker._sourcetracker import (intersect_and_sort_samples,
                                           ConditionalProbability,
                                           gibbs_sampler, gibbs,
                                           plot_heatmap,
-                                          method5)
+                                          method5, _converged)
 
 
 class TestValidateGibbsInput(TestCase):
@@ -1221,6 +1221,57 @@ class TestGibbs(TestCase):
         pd.util.testing.assert_index_equal(obs_mpm.index, exp_mpm.index)
         pd.util.testing.assert_index_equal(obs_mpm.columns, exp_mpm.columns)
         np.testing.assert_allclose(obs_mpm.values, exp_mpm.values, atol=.01)
+
+
+class AutoConvergenceTests(TestCase):
+
+    def setUp(self):
+        pass
+
+    def test_convergence_correctly_calculated(self):
+        envcounts = np.array([[100, 150, 600, 300, 30, 5],
+                              [110, 140, 500, 400, 30, 8],
+                              [90, 160, 550, 330, 50, 13],
+                              [105, 145, 575, 355, 0, 9]])
+
+        draw = 3
+        idx = 3
+        tolerance = .2
+        radius = 2
+        min_sum = 10
+        exp = True
+        obs = _converged(envcounts, draw, idx, tolerance, radius, min_sum)
+        self.assertEqual(obs, exp)
+
+        draw = 3
+        idx = 3
+        tolerance = .2
+        radius = 2
+        min_sum = 9
+        exp = False
+        obs = _converged(envcounts, draw, idx, tolerance, radius, min_sum)
+        self.assertEqual(obs, exp)
+
+        draw = 3
+        idx = 3
+        tolerance = .2
+        radius = 4
+        min_sum = 10
+        exp = False
+        obs = _converged(envcounts, draw, idx, tolerance, radius, min_sum)
+        self.assertEqual(obs, exp)
+
+        draw = 3
+        idx = 3
+        tolerance = .2
+        radius = 4
+        min_sum = 600
+        exp = False
+        obs = _converged(envcounts, draw, idx, tolerance, radius, min_sum)
+        self.assertEqual(obs, exp)
+
+    def test_gibbs_sampler_autoconvergence_when_seeded(self):
+        np.random.seed(298249340)
 
 
 class PlotHeatmapTests(TestCase):
