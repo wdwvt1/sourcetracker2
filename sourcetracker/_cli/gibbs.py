@@ -18,11 +18,16 @@ import click
 from biom import load_table
 from ipyparallel import Client
 
+import numpy as np
+
 from sourcetracker._cli import cli
 from sourcetracker._sourcetracker import (gibbs, intersect_and_sort_samples,
                                           get_samples, collapse_source_data,
                                           subsample_dataframe,
                                           validate_gibbs_input, plot_heatmap)
+
+from sourcetracker._simulated_mixing import (default_mixtures,
+                                             in_silico_mixing_formatter)
 
 from sourcetracker._util import parse_sample_metadata, biom_to_df
 
@@ -241,3 +246,141 @@ def gibbs_cli(table_fp, mapping_fp, output_dir, loo, jobs, alpha1, alpha2,
     # Plot contributions.
     fig, ax = plot_heatmap(mpm)
     fig.savefig(os.path.join(output_dir, 'mixing_proportions.pdf'), dpi=300)
+
+
+
+
+
+
+
+
+
+
+@cli.command(name='simmix')
+@click.option('-i', '--table_fp', required=True,
+              type=click.Path(exists=True, dir_okay=False, readable=True),
+              help='Path to input BIOM table.')
+@click.option('-o', '--output_dir', required=True,
+              type=click.Path(exists=False, dir_okay=True, file_okay=False,
+                              writable=True),
+              help='Path to the output directory to be created.')
+@click.option('--jobs', required=False, default=1,
+              type=click.INT, show_default=True,
+              help='Number of processes to launch.')
+@click.option('--alpha1', required=False, default='0.001, 0.01, 0.1',
+              show_default=True,
+              help=('Prior counts of each feature in the training '
+                    'environments. Higher values decrease the trust in the '
+                    'training environments, and make the source environment '
+                    'distributions over taxa smoother. A value of 0.001 '
+                    'indicates reasonably high trust in all source '
+                    'environments, even those with few training sequences. A '
+                    'more conservative value would be 0.01.'))
+@click.option('--alpha2', required=False, default='0.001, 0.01, 0.1',
+              show_default=True,
+              help=('Prior counts of each feature in the `unknown` environment'
+                    ' as a fraction of the counts of the current sink being '
+                    'evaluated. Higher values make the `unknown` environment '
+                    'smoother and less prone to overfitting given a training '
+                    'sample.'))
+@click.option('--beta', required=False, default=10,
+              type=click.FLOAT, show_default=True,
+              help=('Count to be added to each feature in each environment, '
+                    'including `unknown` for `p_v` calculations.'))
+@click.option('--restarts', required=False, default=10,
+              type=click.INT, show_default=True,
+              help=('Number of independent Markov chains to grow. '
+                    '`draws_per_restart` * `restarts` gives the number of '
+                    'samplings of the mixing proportions that will be '
+                    'generated.'))
+@click.option('--draws_per_restart', required=False, default=1,
+              type=click.INT, show_default=True,
+              help=('Number of times to sample the state of the Markov chain '
+                    'for each independent chain grown.'))
+@click.option('--burnin', required=False, default=100,
+              type=click.INT, show_default=True,
+              help=('Number of passes (withdarawal and reassignment of every '
+                    'sequence in the sink) that will be made before a sample '
+                    '(draw) will be taken. Higher values allow more '
+                    'convergence towards the true distribtion before draws '
+                    'are taken.'))
+@click.option('--delay', required=False, default=1,
+              type=click.INT, show_default=True,
+              help=('Number passes between each sampling (draw) of the '
+                    'Markov chain. Once the burnin passes have been made, a '
+                    'sample will be taken, and then taken again every `delay` '
+                    'number of passes. This is also known as `thinning`. '
+                    'Thinning helps reduce the impact of correlation between '
+                    'adjacent states of the Markov chain.'))
+@click.option('--cluster_start_delay', required=False, default=25,
+              type=click.INT, show_default=True,
+              help=('When using multiple jobs, the script has to start an '
+                    '`ipcluster`. If ipcluster does not recognize that it '
+                    'has been successfully started, the jobs will not be '
+                    'successfully launched. If this is happening, increase '
+                    'this parameter.'))
+def simmix_cli(table_fp, output_dir, jobs, alpha1, alpha2,
+               beta, restarts, draws_per_restart, burnin, delay,
+               cluster_start_delay):
+    '''Simulated mixing for parameter setting.
+
+    For details, see the project README file.
+    '''
+    # Create results directory. Click has already checked if it exists, and
+    # failed if so.
+    os.mkdir(output_dir)
+
+    # Load the feature table.
+    source_table = biom_to_df(load_table(table_fp))
+
+    # Do high level check on feature data.
+    source_table = validate_gibbs_input(source_table)
+
+    alpha1s = list(map(float, alpha1.split(',')))
+    alpha2s = list(map(float, alpha2.split(',')))
+
+    _, exp_mpm, sinks, _ = default_mixtures(source_table)
+
+    # If we've been asked to do multiple jobs, we need to spin up a cluster.
+    if jobs > 1:
+        # Launch the ipcluster and wait for it to come up.
+        subprocess.Popen('ipcluster start -n %s --quiet' % jobs, shell=True)
+        time.sleep(cluster_start_delay)
+        cluster = Client()
+    else:
+        cluster = None
+
+    # Run the computations.
+    # If we're doing simulated mixtures we're moving through alpha1 and alpha2
+    # space.
+
+    obs_mpms = []
+    a1s, a2s = [], []
+    grid_alpha1, grid_alpha2 = np.meshgrid(alpha1s, alpha2s)
+
+    for alpha1, alpha2 in zip(grid_alpha1.flatten(),
+                              grid_alpha2.flatten()):
+        mpm, mps, fas = \
+            gibbs(source_table, sinks, alpha1, alpha2, beta, restarts,
+                  draws_per_restart, burnin, delay, cluster=cluster,
+                  create_feature_tables=False)
+        obs_mpms.append(mpm)
+        a1s.append(alpha1)
+        a2s.append(alpha2)
+
+    sm_summary = in_silico_mixing_formatter(exp_mpm, obs_mpms, a1s, a2s)
+    
+    # Write results.
+    exp_mpm.to_csv(os.path.join(output_dir,
+                                'in_silico_mixed_proportions.txt'),
+                   sep='\t')
+    # obs_mpm.to_csv(os.path.join(output_dir,
+    #                             'in_silico_observed_proportions.txt'),
+    #                sep='\t')
+    sm_summary.to_csv(os.path.join(output_dir, 'in_silico_summary.txt'),
+                      sep='\t')
+
+    # If we started a cluster, shut it down.
+    if jobs > 1:
+        cluster.shutdown(hub=True)
+
