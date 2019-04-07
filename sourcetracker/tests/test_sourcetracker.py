@@ -26,9 +26,9 @@ from sourcetracker._sourcetracker import (intersect_and_sort_samples,
                                           single_sink_feature_table,
                                           ConditionalProbability,
                                           gibbs_sampler, gibbs,
-                                          plot_heatmap,
                                           method5)
 
+from sourcetracker._plot import plot_heatmap
 
 class TestValidateGibbsInput(TestCase):
 
@@ -398,6 +398,20 @@ class TestSubsampleDataframe(TestCase):
                               columns=map(str, np.arange(4)))
         n = 30
         obs = subsample_dataframe(ftable, n)
+        self.assertTrue((obs.sum(axis=1) == n).all())
+
+    def test_subsample_with_replacement(self):
+        # Testing this function deterministically is hard because cython is
+        # generating the PRNG calls. We'll settle for ensuring that the sums
+        # are correct.
+        fdata = np.array([[10,  50,  10,  70],
+                          [0,  25,  10,   5],
+                          [0,  25,  10,   5],
+                          [100,   0,  10,   5]])
+        ftable = pd.DataFrame(fdata, index=['s1', 's2', 's3', 's4'],
+                              columns=map(str, np.arange(4)))
+        n = 30
+        obs = subsample_dataframe(ftable, n, replace=True)
         self.assertTrue((obs.sum(axis=1) == n).all())
 
     def test_shape_doesnt_change(self):
@@ -1243,26 +1257,6 @@ class PlotHeatmapTests(TestCase):
         fig, ax = plot_heatmap(self.mpm, cm=plt.cm.jet,
                                xlabel='Other 1', ylabel='Other 2',
                                title='Other 3')
-
-
-class Method5Tests(TestCase):
-    '''Unit tests for method5'''
-
-    def test_method5(self):
-        sources = pd.DataFrame([[1, 2, 3, 4], [4, 2, 1, 3]],
-                               index=['source1', 'source2'],
-                               columns=['f1', 'f2', 'f3', 'f4'])
-        sinks = pd.DataFrame([[3, 3, 3, 1], [5, 0, 0, 5]],
-                             index=['sink1', 'sink2'],
-                             columns=['f1', 'f2', 'f3', 'f4'])
-
-        obs_result = method5(sources, sinks)
-        exp_result = pd.DataFrame([[0.47826087, 0.52173913],
-                                  [0.41666667, 0.58333333]],
-                                  index=['sink1', 'sink2'],
-                                  columns=['source1', 'source2'])
-
-        pd.util.testing.assert_frame_equal(obs_result, exp_result)
 
 if __name__ == '__main__':
     main()

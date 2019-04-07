@@ -9,16 +9,10 @@
 # ----------------------------------------------------------------------------
 from __future__ import division
 
-import matplotlib
-matplotlib.use('Agg')  # noqa: E402
-
 import numpy as np
 from skbio.stats import subsample_counts
 import pandas as pd
 from functools import partial
-
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 
 def validate_gibbs_input(sources, sinks=None):
@@ -219,7 +213,7 @@ def collapse_source_data(sample_metadata, feature_table, source_samples,
     return validate_gibbs_input(table.groupby('collapse_col').agg(method))
 
 
-def subsample_dataframe(df, depth):
+def subsample_dataframe(df, depth, replace=False):
     '''Subsample (rarify) input dataframe without replacement.
 
     Parameters
@@ -228,14 +222,19 @@ def subsample_dataframe(df, depth):
         Feature table where rows are features and columns are samples.
     depth : int
         Number of sequences to choose per sample.
+    replace : bool, optional
+        If ``True``, subsample with replacement. If ``False`` (the default),
+        subsample without replacement.
 
     Returns
     -------
     pd.DataFrame
         Subsampled dataframe.
     '''
-    f = partial(subsample_counts, n=depth, replace=False)
-    return df.apply(f, axis=1, reduce=False, raw=False)
+    def subsample(x):
+        return pd.Series(subsample_counts(x.values, n=depth, replace=replace),
+                         index=x.index)
+    return df.apply(subsample, axis=1)
 
 
 def generate_environment_assignments(n, num_sources):
@@ -1011,84 +1010,3 @@ def collate_gibbs_results(all_envcounts, all_env_assignments,
             fts = None
 
     return props, props_stds, fts
-
-
-def plot_heatmap(mpm, cm=plt.cm.viridis, xlabel='Sources', ylabel='Sinks',
-                 title='Mixing Proportions (as Fraction)'):
-    '''Make a basic mixing proportion histogram.'''
-    fig = plt.figure()
-    ax = fig.add_subplot(1, 1, 1)
-    sns.heatmap(mpm, vmin=0, vmax=1.0, cmap=cm, annot=True, linewidths=.5,
-                ax=ax)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
-    ax.set_title(title)
-    return fig, ax
-
-###############################################################################
-# Alternative Mixing Proportion Methods
-###############################################################################
-
-
-def method5(sources, sinks):
-    '''
-    Calculates percent probability of each source contributing to the sink
-    based solely on likelihood of seeing a given feature in a given source
-    environment.
-
-    Parameters
-    ----------
-    sources : pd.DataFrame
-        DataFrame of sources x features (rows x columns)
-    sinks : pd.DataFrame
-        DataFrame of sinks x features (rows x columns)
-
-    Returns
-    -------
-    results : pd.DataFrame
-        Dataframe of sinks x sources (rows x columns) of the contribution of
-        each source to each sink
-
-    Examples:
-    ---------
-    # Method5 works by assigning each sink's sequence counts to a source
-    # based solely on the probability of seeing that feature in a source.
-    # source table is source x features (rows x columns)
-    sources = [[1, 2, 3, 4],
-               [4, 2, 1, 3]]
-    sinks =    [3, 3, 3, 1]
-
-    # Calculate probability of seeing each feature in a source by dividing
-    # each source count by the total sum of that source
-    sources_scaled = [[0.1, 0.2, 0.3, 0.4],
-                      [0.4, 0.2, 0.1, 0.3]]
-
-    # Multiple the sink's sequence counts by the sources_scaled probability
-    sources_scaled_counts = [[0.3, 0.6, 0.9, 0.4],
-                             [1.2, 0.6, 0.3, 0.3]]
-
-    # sum up the total sequence contributions across all sources, and then
-    # recalculate how much sequence contribution each source provided
-    source_contributions = [0.478261, 0.512739]
-    '''
-    # check input DataFrames
-    sources_ok, sinks_ok = validate_gibbs_input(sources, sinks)
-
-    # Calculate probability of seeing each feature in a given sources
-    sources_scaled = sources_ok.div(sources.sum(axis=1), axis=0)
-
-    # Create results container
-    results = pd.DataFrame(np.zeros((len(sources.index), len(sinks.index))),
-                           index=[sinks.index], columns=[sources.index])
-
-    for sink in sinks_ok.iterrows():
-
-        # Multiply sinks counts by prob of seeing that feature in each source
-        sources_scaled_counts = sources_scaled * sink[1].values
-
-        # Add up a sources seq count contributions, and rescale
-        table_sum = sources_scaled_counts.sum().sum()
-        source_contributions = sources_scaled_counts.sum(axis=1) / table_sum
-        results.loc[sink[0]] = source_contributions
-
-    return results
